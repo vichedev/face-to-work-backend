@@ -97,7 +97,13 @@ export class UsersService {
   }
 
   async update(id: string, data: UpdateUserData): Promise<User> {
-    const user = await this.usersRepo.findOne({ where: { id } });
+    // Cargamos también el hash de la contraseña (es `select: false`) para que un save()
+    // sin cambiar la contraseña no la deje en NULL.
+    const user = await this.usersRepo
+      .createQueryBuilder('u')
+      .addSelect('u.password')
+      .where('u.id = :id', { id })
+      .getOne();
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
     if (data.email && data.email.toLowerCase().trim() !== user.email) {

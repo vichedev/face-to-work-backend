@@ -33,6 +33,19 @@ function monthRange(year: number, month1to12: number): [Date, Date] {
   const end = new Date(year, month1to12, 0, 23, 59, 59, 999);
   return [start, end];
 }
+// Interpreta una cadena "YYYY-MM-DD" como una fecha LOCAL (no UTC).
+// `new Date('2026-05-12')` se parsea como medianoche UTC, lo que en zonas con offset
+// negativo (Ecuador) caería en el día anterior -> los filtros no devolvían nada.
+function dayStart(s: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], 0, 0, 0, 0);
+  return startOfDay(new Date(s));
+}
+function dayEnd(s: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59, 999);
+  return endOfDay(new Date(s));
+}
 
 @Injectable()
 export class AttendanceService {
@@ -93,9 +106,10 @@ export class AttendanceService {
 
     if (!worker.faceDescriptor && !worker.photoUrl) {
       const desc = await this.faceService.describeFace(dto.photoBase64);
+      // update() para tocar SÓLO estas columnas (un save() del entity dejaría la contraseña en NULL: es select:false)
+      await this.usersRepo.update(worker.id, { faceDescriptor: desc, photoUrl });
       worker.faceDescriptor = desc;
       worker.photoUrl = photoUrl;
-      await this.usersRepo.save(worker);
       matchStatus = 'ai_unavailable';
       confidence = 0;
       aiReasoning = 'Primer marcaje: se guardó esta foto como rostro de referencia.';
@@ -104,8 +118,8 @@ export class AttendanceService {
       if (!worker.faceDescriptor && worker.photoUrl) {
         const desc = await this.faceService.describeFace(this.uploads.readAsDataUrl(worker.photoUrl) || dto.photoBase64);
         if (desc) {
+          await this.usersRepo.update(worker.id, { faceDescriptor: desc });
           worker.faceDescriptor = desc;
-          await this.usersRepo.save(worker);
         }
       }
       const referenceUrl = this.uploads.readAsDataUrl(worker.photoUrl);
@@ -181,8 +195,8 @@ export class AttendanceService {
       return this.repo.find({ where: { workerId: userId, createdAt: Between(start, end) }, order: { createdAt: 'ASC' } });
     }
     const qb = this.repo.createQueryBuilder('a').where('a.workerId = :id', { id: userId }).orderBy('a.createdAt', 'DESC');
-    if (opts.from) qb.andWhere('a.createdAt >= :from', { from: startOfDay(new Date(opts.from)) });
-    if (opts.to) qb.andWhere('a.createdAt <= :to', { to: endOfDay(new Date(opts.to)) });
+    if (opts.from) qb.andWhere('a.createdAt >= :from', { from: dayStart(opts.from) });
+    if (opts.to) qb.andWhere('a.createdAt <= :to', { to: dayEnd(opts.to) });
     qb.limit(2000);
     return qb.getMany();
   }
@@ -193,8 +207,8 @@ export class AttendanceService {
   async list(opts: { workerId?: string; from?: string; to?: string; status?: string; limit?: number }) {
     const qb = this.repo.createQueryBuilder('a').leftJoinAndSelect('a.worker', 'w').orderBy('a.createdAt', 'DESC');
     if (opts.workerId) qb.andWhere('a.workerId = :wid', { wid: opts.workerId });
-    if (opts.from) qb.andWhere('a.createdAt >= :from', { from: startOfDay(new Date(opts.from)) });
-    if (opts.to) qb.andWhere('a.createdAt <= :to', { to: endOfDay(new Date(opts.to)) });
+    if (opts.from) qb.andWhere('a.createdAt >= :from', { from: dayStart(opts.from) });
+    if (opts.to) qb.andWhere('a.createdAt <= :to', { to: dayEnd(opts.to) });
     if (opts.status === 'identified') qb.andWhere('a.workerId IS NOT NULL');
     if (opts.status === 'unidentified') qb.andWhere('a.workerId IS NULL');
     if (opts.status === 'late') qb.andWhere("a.scheduleStatus IN ('late','absent_threshold')");
