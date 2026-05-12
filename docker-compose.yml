@@ -1,0 +1,91 @@
+name: face-to-work
+
+# Topología:
+#   caddy  → reverse proxy con TLS (auto-firmado en IP, o Let's Encrypt si pones un dominio)
+#   api    → NestJS (sirve la API en /api/* y la SPA del frontend desde /public)
+#   db     → PostgreSQL
+# Sólo Caddy expone puertos al host (80 y 443). api y db quedan en la red interna.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ftw_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-face_to_work}
+    volumes:
+      - ftw_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-face_to_work}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # Descomenta si quieres conectarte a la BD desde tu máquina:
+    # ports:
+    #   - "5432:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-to-work-api:latest
+    container_name: ftw_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-face_to_work}
+      DB_SYNC: ${DB_SYNC:-true}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      FRONTEND_URL: ${FRONTEND_URL}
+      BACKEND_URL: ${BACKEND_URL}
+      TRUST_PROXY: "true"
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-meta-llama/llama-4-scout-17b-16e-instruct}
+      GROQ_MATCH_THRESHOLD: ${GROQ_MATCH_THRESHOLD:-55}
+    volumes:
+      - ftw_uploads:/app/uploads
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/auth/me',r=>process.exit(r.statusCode>=200&&r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ftw_caddy
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:443}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ftw_caddy_data:/data
+      - ftw_caddy_config:/config
+
+volumes:
+  ftw_db_data:
+  ftw_uploads:
+  ftw_caddy_data:
+  ftw_caddy_config:

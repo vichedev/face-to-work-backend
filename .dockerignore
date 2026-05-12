@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+!.env.production.example
+.wa-auth
+uploads
+*.log
+.DS_Store
+.git
+.gitignore
+.vscode
+.idea
+README.md
+DEPLOY.md
+nginx
