@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import helmet from 'helmet';
 import compression from 'compression';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -13,13 +14,19 @@ async function bootstrap() {
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
   const app = await NestFactory.create(AppModule, {
-    // Logger más limpio en producción
+    // Desactivamos el body parser por defecto (límite 100kb) y configuramos uno más amplio:
+    // las fotos viajan como base64 dentro del JSON.
+    bodyParser: false,
     logger:
       process.env.NODE_ENV === 'production'
         ? ['error', 'warn', 'log']
         : ['error', 'warn', 'log', 'debug', 'verbose'],
   });
   const config = app.get(ConfigService);
+
+  // Body parser con límite amplio (suficiente para fotos en base64; UploadsService corta a 8 MB)
+  app.use(json({ limit: '16mb' }));
+  app.use(urlencoded({ extended: true, limit: '16mb' }));
 
   // Seguridad: cabeceras HTTP
   app.use(
