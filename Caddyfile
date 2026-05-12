@@ -1,23 +1,28 @@
 # Caddy — reverse proxy con TLS para Face to Work.
 #
 # SITE_ADDRESS se define en .env.production:
-#   - Para un servidor de pruebas con sólo IP:   SITE_ADDRESS=178.104.217.84
-#     Caddy emite un certificado AUTO-FIRMADO (su CA interna). El navegador mostrará
-#     una advertencia de "conexión no privada" — acéptala; HTTPS es necesario para que
-#     funcione la cámara del navegador.
-#   - Cuando tengas un dominio apuntando al servidor:  SITE_ADDRESS=asistencia.tudominio.com
-#     Caddy obtiene automáticamente un certificado real de Let's Encrypt (sin warnings).
+#   - Servidor de pruebas con sólo IP:   SITE_ADDRESS=178.104.217.84
+#     -> Caddy emite un certificado AUTO-FIRMADO (su CA interna). El navegador mostrará
+#        "tu conexión no es privada" — pulsa "Avanzado" -> "Continuar".
+#        (HTTPS es obligatorio para que funcione la cámara del navegador.)
+#   - Con un dominio apuntando al servidor:   SITE_ADDRESS=asistencia.tudominio.com
+#     -> Caddy obtiene automáticamente un certificado real de Let's Encrypt.
 
 {
 	admin off
+	# Sólo HTTP/1.1 y HTTP/2 (no HTTP/3): en Docker sólo publicamos TCP 80/443.
+	servers {
+		protocols h1 h2
+	}
 }
 
-{$SITE_ADDRESS} {
-	encode zstd gzip
+# HTTP (:80) -> redirige a HTTPS
+http://{$SITE_ADDRESS} {
+	redir https://{host}{uri} permanent
+}
 
-	# Oculta la cabecera con la versión del servidor
-	header -Server
-
-	# Todo (SPA + /api + /uploads) lo sirve el backend NestJS
+# HTTPS (:443) — el backend NestJS sirve la SPA + /api + /uploads
+https://{$SITE_ADDRESS} {
+	encode gzip zstd
 	reverse_proxy api:3000
 }
