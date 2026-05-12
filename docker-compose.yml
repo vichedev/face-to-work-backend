@@ -15,6 +15,7 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-face_to_work}
+      TZ: ${TZ:-America/Guayaquil}
     volumes:
       - ftw_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,6 +40,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      TZ: ${TZ:-America/Guayaquil}
       DB_HOST: db
       DB_PORT: 5432
       DB_USERNAME: ${DB_USERNAME:-postgres}

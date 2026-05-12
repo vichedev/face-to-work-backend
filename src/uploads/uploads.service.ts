@@ -40,4 +40,25 @@ export class UploadsService {
     fs.writeFileSync(path.join(this.dir, filename), buffer);
     return this.publicUrl(filename);
   }
+
+  /**
+   * Lee de vuelta una imagen guardada (a partir de su URL pública o nombre de archivo)
+   * y la devuelve como data URL base64. Devuelve null si no existe.
+   */
+  readAsDataUrl(urlOrFilename: string | null | undefined): string | null {
+    if (!urlOrFilename) return null;
+    const filename = path.basename(urlOrFilename.split('?')[0].split('#')[0]);
+    if (!filename || filename.includes('..')) return null;
+    const full = path.join(this.dir, filename);
+    try {
+      if (!fs.existsSync(full)) return null;
+      const buf = fs.readFileSync(full);
+      if (!buf.length) return null;
+      const ext = path.extname(filename).toLowerCase().replace('.', '') || 'jpeg';
+      const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  }
 }

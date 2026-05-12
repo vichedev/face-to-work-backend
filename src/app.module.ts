@@ -10,6 +10,7 @@ import { UsersModule } from './users/users.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { FaceModule } from './face/face.module';
 import { WorkersModule } from './workers/workers.module';
+import { WorkScheduleModule } from './schedule/work-schedule.module';
 import { AttendanceModule } from './attendance/attendance.module';
 
 @Module({
@@ -46,6 +47,7 @@ import { AttendanceModule } from './attendance/attendance.module';
     UploadsModule,
     FaceModule,
     WorkersModule,
+    WorkScheduleModule,
     AttendanceModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

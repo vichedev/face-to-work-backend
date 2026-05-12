@@ -59,6 +59,18 @@ export class Attendance {
   @Column({ type: 'text', default: '' })
   greeting: string;
 
+  // --- Evaluación de la jornada laboral (según la config vigente al marcar) ---
+  // '' | 'normal' | 'on_time' | 'late' | 'absent_threshold' | 'overtime' | 'early_leave' | 'rest_day' | 'holiday'
+  @Column({ type: 'varchar', length: 24, default: '' })
+  scheduleStatus: string;
+
+  /** Minutos de tardanza / hora extra / salida anticipada según el estado. */
+  @Column({ type: 'int', default: 0 })
+  scheduleMinutes: number;
+
+  @Column({ type: 'text', default: '' })
+  scheduleNote: string;
+
   // --- Ubicación ---
   @Column({ type: 'float', nullable: true })
   latitude: number | null;

@@ -12,6 +12,7 @@ import { Attendance, AttendanceType, MatchStatus } from './attendance.entity';
 import { User } from '../users/user.entity';
 import { FaceService } from '../face/face.service';
 import { UploadsService } from '../uploads/uploads.service';
+import { WorkScheduleService } from '../schedule/work-schedule.service';
 import { MarkDto } from './dto/mark.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 
@@ -42,22 +43,13 @@ export class AttendanceService {
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     private readonly faceService: FaceService,
     private readonly uploads: UploadsService,
+    private readonly workSchedule: WorkScheduleService,
     private readonly config: ConfigService,
   ) {}
 
   private get threshold(): number {
     const t = Number(this.config.get<string>('GROQ_MATCH_THRESHOLD'));
     return isFinite(t) && t > 0 ? t : DEFAULT_THRESHOLD;
-  }
-
-  /** Tipo de marcaje a registrar para un trabajador: alterna según su último marcaje de hoy. */
-  private async nextTypeFor(workerId: string): Promise<AttendanceType> {
-    const last = await this.repo.find({
-      where: { workerId, createdAt: Between(startOfDay(), endOfDay()) },
-      order: { createdAt: 'DESC' },
-      take: 1,
-    });
-    return last[0]?.type === 'in' ? 'out' : 'in';
   }
 
   // ============================================================
@@ -77,26 +69,58 @@ export class AttendanceService {
       throw new BadRequestException(e?.message || 'Foto inválida');
     }
 
+    // Marcajes de hoy del trabajador (para alternar entrada/salida y saber si es el primer "in")
+    const todays = await this.repo.find({
+      where: { workerId: worker.id, createdAt: Between(startOfDay(), endOfDay()) },
+      order: { createdAt: 'ASC' },
+    });
+    const lastToday = todays[todays.length - 1];
     const type: AttendanceType =
-      dto.type === 'in' || dto.type === 'out' ? dto.type : await this.nextTypeFor(worker.id);
-    const hour = new Date().getHours();
+      dto.type === 'in' || dto.type === 'out'
+        ? dto.type
+        : lastToday?.type === 'in'
+          ? 'out'
+          : 'in';
+    const isFirstInOfDay = type === 'in' && !todays.some((a) => a.type === 'in');
+    // Hora local del trabajador (la envía el navegador); si no llega, hora del servidor.
+    const hour = typeof dto.clientHour === 'number' ? dto.clientHour : new Date().getHours();
 
-    // Autoinscripción del rostro en el primer marcaje (si aún no tiene descriptor)
-    if (!worker.faceDescriptor) {
+    // --- Reconocimiento facial ---
+    let matchStatus: MatchStatus;
+    let confidence: number;
+    let aiReasoning: string;
+    let greeting: string;
+
+    if (!worker.faceDescriptor && !worker.photoUrl) {
       const desc = await this.faceService.describeFace(dto.photoBase64);
-      if (desc) {
-        worker.faceDescriptor = desc;
-        if (!worker.photoUrl) worker.photoUrl = photoUrl;
-        await this.usersRepo.save(worker);
+      worker.faceDescriptor = desc;
+      worker.photoUrl = photoUrl;
+      await this.usersRepo.save(worker);
+      matchStatus = 'ai_unavailable';
+      confidence = 0;
+      aiReasoning = 'Primer marcaje: se guardó esta foto como rostro de referencia.';
+      greeting = this.faceService.composeGreeting(worker.name, type, hour);
+    } else {
+      if (!worker.faceDescriptor && worker.photoUrl) {
+        const desc = await this.faceService.describeFace(this.uploads.readAsDataUrl(worker.photoUrl) || dto.photoBase64);
+        if (desc) {
+          worker.faceDescriptor = desc;
+          await this.usersRepo.save(worker);
+        }
       }
+      const referenceUrl = this.uploads.readAsDataUrl(worker.photoUrl);
+      const v = await this.faceService.verify(dto.photoBase64, referenceUrl, worker.faceDescriptor, worker.name, { type, hour });
+      confidence = v.confidence;
+      aiReasoning = v.reasoning;
+      greeting = v.greeting;
+      if (!v.available) matchStatus = 'ai_unavailable';
+      else if (v.match && v.confidence >= this.threshold) matchStatus = 'matched';
+      else matchStatus = 'low_confidence';
     }
 
-    const v = await this.faceService.verify(dto.photoBase64, worker.faceDescriptor, worker.name, { type, hour });
-
-    let matchStatus: MatchStatus;
-    if (!v.available) matchStatus = 'ai_unavailable';
-    else if (v.match && v.confidence >= this.threshold) matchStatus = 'matched';
-    else matchStatus = 'low_confidence';
+    // --- Evaluación de la jornada laboral ---
+    const schedule = await this.workSchedule.get();
+    const ev = this.workSchedule.evaluate({ type, at: new Date(), schedule, isFirstInOfDay });
 
     const record = this.repo.create({
       workerId: worker.id,
@@ -104,9 +128,12 @@ export class AttendanceService {
       photoUrl,
       matchStatus,
       recognizedName: worker.name,
-      confidence: v.confidence,
-      aiReasoning: (v.reasoning || '').slice(0, 1000),
-      greeting: (v.greeting || '').slice(0, 300),
+      confidence,
+      aiReasoning: (aiReasoning || '').slice(0, 1000),
+      greeting: (greeting || '').slice(0, 300),
+      scheduleStatus: ev.status,
+      scheduleMinutes: ev.minutes,
+      scheduleNote: (ev.note || '').slice(0, 300),
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
       accuracy: dto.accuracy ?? null,
@@ -121,9 +148,10 @@ export class AttendanceService {
       type,
       matchStatus,
       faceVerified: matchStatus === 'matched',
-      confidence: v.confidence,
-      greeting: v.greeting,
-      message: v.greeting,
+      confidence,
+      greeting,
+      message: greeting,
+      schedule: ev,
       timestamp: saved.createdAt,
       worker: this.publicWorker(worker),
     };
@@ -146,7 +174,6 @@ export class AttendanceService {
     return { date: startOfDay().toISOString(), nextAction, marks: todays, firstIn, lastOut, workedHours };
   }
 
-  /** Marcajes del trabajador autenticado (todos, por mes o por rango). Sólo lectura para el trabajador. */
   async myAttendance(userId: string, opts: { month?: string; from?: string; to?: string }) {
     if (opts.month && /^\d{4}-\d{2}$/.test(opts.month)) {
       const [y, m] = opts.month.split('-').map(Number);
@@ -170,6 +197,8 @@ export class AttendanceService {
     if (opts.to) qb.andWhere('a.createdAt <= :to', { to: endOfDay(new Date(opts.to)) });
     if (opts.status === 'identified') qb.andWhere('a.workerId IS NOT NULL');
     if (opts.status === 'unidentified') qb.andWhere('a.workerId IS NULL');
+    if (opts.status === 'late') qb.andWhere("a.scheduleStatus IN ('late','absent_threshold')");
+    if (opts.status === 'overtime') qb.andWhere("a.scheduleStatus = 'overtime'");
     qb.limit(Math.min(opts.limit || 300, 2000));
     return qb.getMany();
   }
@@ -197,6 +226,11 @@ export class AttendanceService {
     const checkInsToday = todays.filter((a) => a.type === 'in').length;
     const checkOutsToday = todays.filter((a) => a.type === 'out').length;
     const unidentifiedToday = todays.filter((a) => !a.workerId).length;
+    const lateToday = todays.filter((a) => a.scheduleStatus === 'late' || a.scheduleStatus === 'absent_threshold').length;
+    const overtimeMarksToday = todays.filter((a) => a.scheduleStatus === 'overtime').length;
+    const overtimeMinutesToday = todays
+      .filter((a) => a.scheduleStatus === 'overtime')
+      .reduce((s, a) => s + (a.scheduleMinutes || 0), 0);
 
     const lastByWorker = new Map<string, Attendance>();
     for (const a of todays) {
@@ -204,8 +238,11 @@ export class AttendanceService {
     }
     const presentNow = [...lastByWorker.values()].filter((a) => a.type === 'in').length;
 
+    const schedule = await this.workSchedule.get();
+
     return {
       aiEnabled: this.faceService.enabled,
+      scheduleEnabled: schedule.enabled,
       totalWorkers,
       activeWorkers,
       enrolledWorkers,
@@ -213,11 +250,14 @@ export class AttendanceService {
       checkOutsToday,
       presentNow,
       unidentifiedToday,
+      lateToday,
+      overtimeMarksToday,
+      overtimeMinutesToday,
       recent: todays.slice(0, 12),
     };
   }
 
-  /** Corrección de un marcaje por un administrador. */
+  /** Corrección de un marcaje por un administrador (re-evalúa la jornada con la config vigente). */
   async adminUpdate(id: string, dto: UpdateAttendanceDto) {
     const rec = await this.repo.findOne({ where: { id } });
     if (!rec) throw new NotFoundException('Marcaje no encontrado');
@@ -228,11 +268,25 @@ export class AttendanceService {
       if (isNaN(d.getTime())) throw new BadRequestException('Fecha inválida');
       rec.createdAt = d;
     }
+    if (rec.workerId) {
+      const at = new Date(rec.createdAt);
+      const dayMarks = await this.repo.find({
+        where: { workerId: rec.workerId, createdAt: Between(startOfDay(at), endOfDay(at)) },
+        order: { createdAt: 'ASC' },
+      });
+      const isFirstInOfDay =
+        rec.type === 'in' &&
+        !dayMarks.some((m) => m.id !== rec.id && m.type === 'in' && new Date(m.createdAt) <= at);
+      const schedule = await this.workSchedule.get();
+      const ev = this.workSchedule.evaluate({ type: rec.type, at, schedule, isFirstInOfDay });
+      rec.scheduleStatus = ev.status;
+      rec.scheduleMinutes = ev.minutes;
+      rec.scheduleNote = (ev.note || '').slice(0, 300);
+    }
     await this.repo.save(rec);
     return this.repo.findOne({ where: { id }, relations: ['worker'] });
   }
 
-  /** Eliminación de un marcaje por un administrador. */
   async adminRemove(id: string) {
     const rec = await this.repo.findOne({ where: { id } });
     if (!rec) throw new NotFoundException('Marcaje no encontrado');

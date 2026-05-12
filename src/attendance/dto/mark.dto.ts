@@ -1,5 +1,6 @@
 import {
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -28,6 +29,10 @@ export class MarkDto {
 
   @IsOptional() @IsString() @MaxLength(220)
   deviceInfo?: string;
+
+  /** Hora local del dispositivo del trabajador (0-23). Se usa para el saludo. */
+  @IsOptional() @IsInt() @Min(0) @Max(23)
+  clientHour?: number;
 
   /** Normalmente se omite: el sistema alterna entrada/salida automáticamente */
   @IsOptional() @IsIn(['in', 'out'])

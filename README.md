@@ -28,5 +28,6 @@ El esquema de la base de datos se crea solo (TypeORM `synchronize`).
 - `GET  /api/attendance/me/today` · `GET /api/attendance/me?month=YYYY-MM` — marcajes del propio trabajador (sólo lectura)
 - `GET  /api/attendance` · `/api/attendance/today` · `/api/attendance/summary/dashboard` — administración
 - `PATCH /api/attendance/:id` · `DELETE /api/attendance/:id` — corregir / eliminar un marcaje (sólo admin)
+- `GET  /api/schedule` (cualquier usuario) · `PATCH /api/schedule` (sólo admin) — jornada laboral (horarios por día, tolerancias de tardanza/inasistencia, horas extra, salida anticipada, días festivos)
 
 Consulta el `README.md` y el `DEPLOY.md` de la raíz del proyecto para la guía completa.

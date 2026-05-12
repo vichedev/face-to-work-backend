@@ -6,12 +6,14 @@ import { AttendanceService } from './attendance.service';
 import { AttendanceController } from './attendance.controller';
 import { FaceModule } from '../face/face.module';
 import { UploadsModule } from '../uploads/uploads.module';
+import { WorkScheduleModule } from '../schedule/work-schedule.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Attendance, User]),
     FaceModule,
     UploadsModule,
+    WorkScheduleModule,
   ],
   providers: [AttendanceService],
   controllers: [AttendanceController],
