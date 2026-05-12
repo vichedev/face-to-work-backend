@@ -58,6 +58,9 @@ services:
       GROQ_MATCH_THRESHOLD: ${GROQ_MATCH_THRESHOLD:-55}
     volumes:
       - ftw_uploads:/app/uploads
+      # El frontend compilado se monta desde el host: para actualizarlo basta con
+      # re-subir esta carpeta y `docker compose restart api` (sin rebuild de la imagen).
+      - ./public:/app/public:ro
     expose:
       - "3000"
     healthcheck:
