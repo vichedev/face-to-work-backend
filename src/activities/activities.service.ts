@@ -11,6 +11,7 @@ import { Between, Repository } from 'typeorm';
 import { Activity } from './activity.entity';
 import { User } from '../users/user.entity';
 import { UploadsService } from '../uploads/uploads.service';
+import { PushService } from '../push/push.service';
 import { StartActivityDto } from './dto/start-activity.dto';
 import { EndActivityDto } from './dto/end-activity.dto';
 import { AdminUpdateActivityDto } from './dto/admin-update-activity.dto';
@@ -41,6 +42,7 @@ export class ActivitiesService {
     @InjectRepository(Activity) private readonly repo: Repository<Activity>,
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     private readonly uploads: UploadsService,
+    private readonly push: PushService,
   ) {}
 
   private saveOptionalPhoto(b64: string | undefined, prefix: string): string {
@@ -72,7 +74,15 @@ export class ActivitiesService {
       startPhotoUrl,
       status: 'in_progress',
     });
-    return this.repo.save(a);
+    const saved = await this.repo.save(a);
+    this.push.notifyAdmins({
+      title: `${worker.name} inició actividad`,
+      body: saved.title,
+      url: '/admin/activities',
+      tag: 'act-start-' + saved.id,
+      icon: worker.photoUrl || undefined,
+    }).catch(() => {});
+    return saved;
   }
 
   async end(workerId: string, id: string, dto: EndActivityDto): Promise<Activity> {
@@ -90,7 +100,20 @@ export class ActivitiesService {
     a.endPhotoUrl = this.saveOptionalPhoto(dto.photoBase64, 'act-end');
     a.status = 'completed';
     a.durationMinutes = Math.max(0, Math.round((now.getTime() - new Date(a.startedAt).getTime()) / 60000));
-    return this.repo.save(a);
+    const saved = await this.repo.save(a);
+    // Notificar al admin con la duración total
+    const worker = await this.usersRepo.findOne({ where: { id: workerId } });
+    const h = Math.floor(saved.durationMinutes / 60);
+    const m = saved.durationMinutes % 60;
+    const dur = h ? `${h} h ${m} min` : `${m} min`;
+    this.push.notifyAdmins({
+      title: `${worker?.name || 'Trabajador'} terminó actividad`,
+      body: `${saved.title} · ${dur}`,
+      url: '/admin/activities',
+      tag: 'act-end-' + saved.id,
+      icon: worker?.photoUrl || undefined,
+    }).catch(() => {});
+    return saved;
   }
 
   findCurrent(workerId: string) {

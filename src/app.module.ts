@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { join } from 'path';
@@ -20,6 +21,7 @@ import { JustificationsModule } from './justifications/justifications.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { TasksModule } from './tasks/tasks.module';
 import { PushModule } from './push/push.module';
+import { RemindersModule } from './reminders/reminders.module';
 
 /**
  * Arregla diferencias de esquema que TypeORM no migra limpiamente:
@@ -68,6 +70,7 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
       ['tasks', 'startedAt'],
       ['tasks', 'completedAt'],
       ['push_subscriptions', 'createdAt'],
+      ['reminder_sent', 'createdAt'],
     ];
     for (const [table, column] of timestampTargets) {
       if (!(await qr.hasTable(table))) continue;
@@ -94,6 +97,7 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1000, limit: 10 },
       { name: 'medium', ttl: 10000, limit: 60 },
@@ -147,6 +151,7 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
     PayrollModule,
     TasksModule,
     PushModule,
+    RemindersModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

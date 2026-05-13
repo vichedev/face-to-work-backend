@@ -7,9 +7,10 @@ import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { AuditModule } from '../audit/audit.module';
 import { PushModule } from '../push/push.module';
+import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Task, Activity, User]), AuditModule, PushModule],
+  imports: [TypeOrmModule.forFeature([Task, Activity, User]), AuditModule, PushModule, UploadsModule],
   providers: [TasksService],
   controllers: [TasksController],
   exports: [TasksService],

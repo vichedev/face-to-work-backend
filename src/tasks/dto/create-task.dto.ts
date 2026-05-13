@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsISO8601,
   IsNumber,
@@ -38,6 +39,12 @@ export class CreateTaskDto {
 
   @IsOptional() @IsNumber() @Min(-180) @Max(180)
   locationLng?: number;
+
+  @IsOptional() @IsBoolean()
+  requireStartPhoto?: boolean;
+
+  @IsOptional() @IsBoolean()
+  requireEndPhoto?: boolean;
 }
 
 export class UpdateTaskDto {
@@ -64,4 +71,10 @@ export class UpdateTaskDto {
 
   @IsOptional() @IsIn(['pending', 'accepted', 'in_progress', 'completed', 'cancelled'])
   status?: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+
+  @IsOptional() @IsBoolean()
+  requireStartPhoto?: boolean;
+
+  @IsOptional() @IsBoolean()
+  requireEndPhoto?: boolean;
 }

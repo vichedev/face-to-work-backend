@@ -39,6 +39,13 @@ export class PayrollController {
   }
 
   @UseGuards(AdminGuard)
+  @Get(':workerId/trend')
+  trend(@Param('workerId') workerId: string, @Query('months') months?: string) {
+    const n = months ? Math.max(2, Math.min(parseInt(months, 10) || 6, 24)) : 6;
+    return this.service.monthlyTrend(workerId, n);
+  }
+
+  @UseGuards(AdminGuard)
   @Get(':workerId/pdf')
   async pdf(
     @Param('workerId') workerId: string,

@@ -40,6 +40,26 @@ export class TasksController {
   }
 
   @UseGuards(AdminGuard)
+  @Post('bulk-import')
+  async bulkImport(@Req() req: any, @Body() body: { csv: string }) {
+    if (!body?.csv || typeof body.csv !== 'string') {
+      return { created: 0, errors: [{ row: 0, message: 'Falta el campo "csv" con el contenido del archivo' }] };
+    }
+    const result = await this.service.importCsv(req.user.id, body.csv);
+    if (result.created > 0) {
+      await this.audit.record(auditCtx(req), {
+        entity: 'task',
+        entityId: 'bulk',
+        action: 'create',
+        summary: `Importó ${result.created} tarea${result.created === 1 ? '' : 's'} desde CSV`,
+        before: null,
+        after: { created: result.created, errors: result.errors.length },
+      });
+    }
+    return result;
+  }
+
+  @UseGuards(AdminGuard)
   @Get()
   list(
     @Query('workerId') workerId?: string,
@@ -99,7 +119,7 @@ export class TasksController {
   start(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() body: { latitude?: number; longitude?: number; accuracy?: number },
+    @Body() body: { latitude?: number; longitude?: number; accuracy?: number; photoBase64?: string },
   ) {
     return this.service.start(req.user.id, id, body || {});
   }
@@ -109,7 +129,7 @@ export class TasksController {
   complete(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() body: { completionNote?: string; latitude?: number; longitude?: number; accuracy?: number },
+    @Body() body: { completionNote?: string; latitude?: number; longitude?: number; accuracy?: number; photoBase64?: string },
   ) {
     return this.service.complete(req.user.id, id, body || {});
   }

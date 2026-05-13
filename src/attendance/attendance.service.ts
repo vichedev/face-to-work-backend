@@ -14,6 +14,7 @@ import { User } from '../users/user.entity';
 import { FaceService } from '../face/face.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { WorkScheduleService } from '../schedule/work-schedule.service';
+import { PushService } from '../push/push.service';
 import { MarkDto } from './dto/mark.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 
@@ -69,6 +70,7 @@ export class AttendanceService {
     private readonly uploads: UploadsService,
     private readonly workSchedule: WorkScheduleService,
     private readonly config: ConfigService,
+    private readonly push: PushService,
   ) {}
 
   private get threshold(): number {
@@ -184,6 +186,24 @@ export class AttendanceService {
     });
     const saved = await this.repo.save(record);
     const full = await this.repo.findOne({ where: { id: saved.id }, relations: ['worker'] });
+
+    // Notificar a los admins en tiempo real (best-effort)
+    const TYPE_LABEL: Record<AttendanceType, string> = {
+      in: 'marcó ENTRADA',
+      lunch_out: 'salió a ALMUERZO',
+      lunch_in: 'volvió del almuerzo',
+      out: 'marcó SALIDA',
+    };
+    const tag = `att-${worker.id}-${type}`;
+    const lateNote = ev.status === 'late' && ev.minutes > 0 ? ` · ${ev.minutes} min de tardanza` : '';
+    const distNote = distance != null && !insideOffice ? ` · a ${Math.round(distance)} m de la oficina` : '';
+    this.push.notifyAdmins({
+      title: `${worker.name} ${TYPE_LABEL[type] || type}`,
+      body: `${new Date(saved.createdAt).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}${lateNote}${distNote}`,
+      url: '/admin/attendance',
+      tag,
+      icon: worker.photoUrl || undefined,
+    }).catch(() => {});
 
     return {
       attendance: full,

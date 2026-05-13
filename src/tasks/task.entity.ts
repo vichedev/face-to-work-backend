@@ -70,6 +70,15 @@ export class Task {
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status: TaskStatus;
 
+  // ── Reglas de cumplimiento (anti-fraude / evidencia) ──
+  /** Si es true, al iniciar la tarea el trabajador DEBE adjuntar foto-evidencia. */
+  @Column({ default: false })
+  requireStartPhoto: boolean;
+
+  /** Si es true, al terminar la tarea el trabajador DEBE adjuntar foto-evidencia. */
+  @Column({ default: false })
+  requireEndPhoto: boolean;
+
   /** Si la tarea se inició, link a la Activity creada (no es FK estricta para no acoplar). */
   @Column('uuid', { nullable: true })
   activityId: string | null;

@@ -6,9 +6,10 @@ import { ActivitiesService } from './activities.service';
 import { ActivitiesController } from './activities.controller';
 import { AuditModule } from '../audit/audit.module';
 import { UploadsModule } from '../uploads/uploads.module';
+import { PushModule } from '../push/push.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Activity, User]), AuditModule, UploadsModule],
+  imports: [TypeOrmModule.forFeature([Activity, User]), AuditModule, UploadsModule, PushModule],
   providers: [ActivitiesService],
   controllers: [ActivitiesController],
   exports: [ActivitiesService],

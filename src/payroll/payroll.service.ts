@@ -75,6 +75,45 @@ export class PayrollService {
     private readonly workSchedule: WorkScheduleService,
   ) {}
 
+  /**
+   * Devuelve la serie de N meses anteriores (incluido el actual) con totales clave
+   * por mes. Útil para el dashboard de evolución por trabajador.
+   */
+  async monthlyTrend(workerId: string, months = 6) {
+    const now = new Date();
+    const series: Array<{
+      month: string;       // 'YYYY-MM'
+      label: string;       // 'may. 2026'
+      workedHours: number;
+      overtimeHours: number;
+      lateDays: number;
+      lateMinutes: number;
+      absentDays: number;
+      justifiedDays: number;
+      workedDays: number;
+      activitiesCount: number;
+    }> = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const payroll = await this.computeMonth(workerId, y, m);
+      series.push({
+        month: `${y}-${String(m).padStart(2, '0')}`,
+        label: d.toLocaleDateString('es-EC', { month: 'short', year: 'numeric' }),
+        workedHours: Math.round((payroll.totals.workedMinutes / 60) * 10) / 10,
+        overtimeHours: Math.round((payroll.totals.overtimeMinutes / 60) * 10) / 10,
+        lateDays: payroll.totals.lateDays,
+        lateMinutes: payroll.totals.lateMinutes,
+        absentDays: payroll.totals.absentDays,
+        justifiedDays: payroll.totals.justifiedDays,
+        workedDays: payroll.totals.workedDays,
+        activitiesCount: payroll.totals.activitiesCount,
+      });
+    }
+    return { workerId, months, series };
+  }
+
   async computeMonth(workerId: string, year: number, month1: number): Promise<MonthlyPayroll> {
     const worker = await this.usersRepo.findOne({ where: { id: workerId } });
     if (!worker) throw new NotFoundException('Trabajador no encontrado');

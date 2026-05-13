@@ -1,9 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { PushSubscription } from './push-subscription.entity';
+import { User } from '../users/user.entity';
 
 export interface NotifyPayload {
   title: string;
@@ -23,6 +24,7 @@ export class PushService implements OnModuleInit {
 
   constructor(
     @InjectRepository(PushSubscription) private readonly repo: Repository<PushSubscription>,
+    @InjectRepository(User) private readonly usersRepo: Repository<User>,
     private readonly config: ConfigService,
   ) {}
 
@@ -79,8 +81,13 @@ export class PushService implements OnModuleInit {
 
   /** Envía una notificación a todas las suscripciones del usuario. Errores no propagan. */
   async notifyUser(userId: string, payload: NotifyPayload): Promise<{ sent: number; pruned: number }> {
-    if (!this.configured) return { sent: 0, pruned: 0 };
-    const subs = await this.repo.find({ where: { userId } });
+    return this.notifyUsers([userId], payload);
+  }
+
+  /** Envía a varios usuarios a la vez (admins, equipo, etc.). */
+  async notifyUsers(userIds: string[], payload: NotifyPayload): Promise<{ sent: number; pruned: number }> {
+    if (!this.configured || !userIds.length) return { sent: 0, pruned: 0 };
+    const subs = await this.repo.find({ where: { userId: In(userIds) } });
     if (!subs.length) return { sent: 0, pruned: 0 };
     let sent = 0, pruned = 0;
     const body = JSON.stringify(payload);
@@ -94,7 +101,6 @@ export class PushService implements OnModuleInit {
         sent += 1;
       } catch (e: any) {
         const code = e?.statusCode;
-        // 404 = endpoint borrado, 410 = Gone. Ambos: eliminar la suscripción.
         if (code === 404 || code === 410) {
           await this.repo.delete({ id: s.id }).catch(() => {});
           pruned += 1;
@@ -104,5 +110,13 @@ export class PushService implements OnModuleInit {
       }
     }
     return { sent, pruned };
+  }
+
+  /** Notifica a TODOS los administradores activos. */
+  async notifyAdmins(payload: NotifyPayload): Promise<{ sent: number; pruned: number }> {
+    if (!this.configured) return { sent: 0, pruned: 0 };
+    const admins = await this.usersRepo.find({ where: { role: 'admin', active: true }, select: ['id'] });
+    const ids = admins.map((a) => a.id);
+    return this.notifyUsers(ids, payload);
   }
 }
