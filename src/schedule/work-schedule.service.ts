@@ -8,7 +8,7 @@ import {
 } from './work-schedule.entity';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 
-export type MarkType = 'in' | 'out';
+export type MarkType = 'in' | 'lunch_out' | 'lunch_in' | 'out';
 export type ScheduleStatus =
   | 'normal' // jornada no evaluada (deshabilitada)
   | 'on_time' // dentro de lo esperado
@@ -134,9 +134,37 @@ export class WorkScheduleService {
     if (dto.earlyLeaveEnabled !== undefined) s.earlyLeaveEnabled = !!dto.earlyLeaveEnabled;
     if (dto.earlyLeaveBeforeMinutes !== undefined) s.earlyLeaveBeforeMinutes = clampMin(dto.earlyLeaveBeforeMinutes, s.earlyLeaveBeforeMinutes);
     if (dto.holidays !== undefined) s.holidays = sanitizeHolidays(dto.holidays);
+    // Oficina
+    if (dto.officeName !== undefined) s.officeName = String(dto.officeName).slice(0, 120).trim();
+    if (dto.officeLatitude !== undefined) {
+      const v = Number(dto.officeLatitude);
+      s.officeLatitude = isFinite(v) && v >= -90 && v <= 90 ? v : null;
+    }
+    if (dto.officeLongitude !== undefined) {
+      const v = Number(dto.officeLongitude);
+      s.officeLongitude = isFinite(v) && v >= -180 && v <= 180 ? v : null;
+    }
+    if (dto.officeRadiusMeters !== undefined) {
+      const r = Math.round(Number(dto.officeRadiusMeters));
+      s.officeRadiusMeters = isFinite(r) && r > 0 ? Math.min(r, 10000) : s.officeRadiusMeters;
+    }
+    if (dto.geofenceEnabled !== undefined) s.geofenceEnabled = !!dto.geofenceEnabled;
     // coherencia: el límite de inasistencia no puede ser menor que el de tardanza
     if (s.absentAfterMinutes < s.lateAfterMinutes) s.absentAfterMinutes = s.lateAfterMinutes;
     return this.repo.save(s);
+  }
+
+  /** Distancia en metros entre dos puntos (haversine). Null si falta alguna coord. */
+  static haversine(lat1: number | null, lon1: number | null, lat2: number | null, lon2: number | null): number | null {
+    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const R = 6371e3; // metros
+    const φ1 = toRad(lat1);
+    const φ2 = toRad(lat2);
+    const dφ = toRad(lat2 - lat1);
+    const dλ = toRad(lon2 - lon1);
+    const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   /**
@@ -156,6 +184,9 @@ export class WorkScheduleService {
     const days = schedule.days || defaultDays();
     const day = days[String(at.getDay())];
     if (!day || !day.enabled) return { status: 'rest_day', minutes: 0, note: 'Marcaje en día de descanso' };
+
+    // Los marcajes de almuerzo no se evalúan contra la jornada (sólo entrada y salida)
+    if (type === 'lunch_out' || type === 'lunch_in') return { status: 'normal', minutes: 0, note: '' };
 
     if (type === 'in') {
       if (!isFirstInOfDay) return { status: 'normal', minutes: 0, note: 'Reingreso' };

@@ -12,6 +12,8 @@ import { FaceModule } from './face/face.module';
 import { WorkersModule } from './workers/workers.module';
 import { WorkScheduleModule } from './schedule/work-schedule.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { ActivitiesModule } from './activities/activities.module';
+import { PerformanceModule } from './performance/performance.module';
 
 @Module({
   imports: [
@@ -49,6 +51,8 @@ import { AttendanceModule } from './attendance/attendance.module';
     WorkersModule,
     WorkScheduleModule,
     AttendanceModule,
+    ActivitiesModule,
+    PerformanceModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

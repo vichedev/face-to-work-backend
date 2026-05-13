@@ -42,4 +42,20 @@ export class UpdateScheduleDto {
   /** [{ date: "YYYY-MM-DD", name: "..." }, ...] — el servicio lo sanea. */
   @IsOptional() @IsArray()
   holidays?: Array<{ date?: string; name?: string }>;
+
+  // --- Oficina / centro de trabajo ---
+  @IsOptional() @IsString() @MaxLength(120)
+  officeName?: string;
+
+  @IsOptional()
+  officeLatitude?: number | null;
+
+  @IsOptional()
+  officeLongitude?: number | null;
+
+  @IsOptional() @IsInt() @Min(10) @Max(10000)
+  officeRadiusMeters?: number;
+
+  @IsOptional() @IsBoolean()
+  geofenceEnabled?: boolean;
 }

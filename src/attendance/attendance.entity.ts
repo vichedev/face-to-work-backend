@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { User } from '../users/user.entity';
 
-export type AttendanceType = 'in' | 'out';
+export type AttendanceType = 'in' | 'lunch_out' | 'lunch_in' | 'out';
 export type MatchStatus =
   | 'matched'
   | 'low_confidence'
@@ -34,8 +34,8 @@ export class Attendance {
   @JoinColumn({ name: 'workerId' })
   worker: User | null;
 
-  /** 'in' = entrada, 'out' = salida */
-  @Column({ type: 'varchar', length: 8 })
+  /** Tipo de marcaje: in (entrada), lunch_out (salida a almuerzo), lunch_in (vuelta), out (salida del trabajo). */
+  @Column({ type: 'text' })
   type: AttendanceType;
 
   /** Foto capturada al momento de marcar */
@@ -83,6 +83,14 @@ export class Attendance {
 
   @Column({ default: '' })
   locationLabel: string;
+
+  /** Distancia (m) entre el marcaje y la oficina configurada (null si no hay oficina). */
+  @Column({ type: 'float', nullable: true })
+  distanceFromOfficeMeters: number | null;
+
+  /** True si está dentro del radio de la oficina (false si fuera o si no hay geocerca activa). */
+  @Column({ default: false })
+  insideOffice: boolean;
 
   @Column({ default: '' })
   deviceInfo: string;

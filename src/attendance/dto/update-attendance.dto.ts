@@ -3,8 +3,8 @@ import { IsIn, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validato
 /** Corrección de un marcaje por parte de un administrador. */
 export class UpdateAttendanceDto {
   @IsOptional()
-  @IsIn(['in', 'out'])
-  type?: 'in' | 'out';
+  @IsIn(['in', 'lunch_out', 'lunch_in', 'out'])
+  type?: 'in' | 'lunch_out' | 'lunch_in' | 'out';
 
   @IsOptional()
   @IsISO8601()

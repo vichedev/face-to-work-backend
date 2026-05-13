@@ -34,7 +34,8 @@ export class MarkDto {
   @IsOptional() @IsInt() @Min(0) @Max(23)
   clientHour?: number;
 
-  /** Normalmente se omite: el sistema alterna entrada/salida automáticamente */
-  @IsOptional() @IsIn(['in', 'out'])
-  type?: 'in' | 'out';
+  /** Normalmente se omite: el sistema determina el siguiente tipo automáticamente.
+   *  Secuencia: in → lunch_out → lunch_in → out  (lunch puede saltarse) */
+  @IsOptional() @IsIn(['in', 'lunch_out', 'lunch_in', 'out'])
+  type?: 'in' | 'lunch_out' | 'lunch_in' | 'out';
 }

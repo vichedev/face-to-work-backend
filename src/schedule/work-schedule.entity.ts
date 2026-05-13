@@ -66,6 +66,24 @@ export class WorkSchedule {
   @Column({ type: 'jsonb', nullable: true })
   holidays: Holiday[] | null;
 
+  // --- Ubicación de la oficina / centro de trabajo ---
+  @Column({ default: '' })
+  officeName: string;
+
+  @Column({ type: 'float', nullable: true })
+  officeLatitude: number | null;
+
+  @Column({ type: 'float', nullable: true })
+  officeLongitude: number | null;
+
+  /** Radio (metros) dentro del cual el marcaje se considera "en la oficina". */
+  @Column({ type: 'int', default: 100 })
+  officeRadiusMeters: number;
+
+  /** Si está activo, los marcajes fuera del radio se etiquetan. */
+  @Column({ default: false })
+  geofenceEnabled: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

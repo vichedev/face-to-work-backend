@@ -5,7 +5,7 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
 export type FaceDescriptor = Record<string, any>;
-export type MarkType = 'in' | 'out';
+export type MarkType = 'in' | 'lunch_out' | 'lunch_in' | 'out';
 
 export interface VerifyResult {
   available: boolean; // false si la IA no estuvo disponible / no había referencia
@@ -33,7 +33,22 @@ function partOfDay(hour: number): string {
 }
 
 function fallbackPhrase(type: MarkType): string {
-  return type === 'in' ? '¡Que tengas un buen turno!' : '¡Buen trabajo, descansa!';
+  switch (type) {
+    case 'in': return '¡Que tengas un buen turno!';
+    case 'lunch_out': return '¡Buen provecho, disfruta el almuerzo!';
+    case 'lunch_in': return '¡Listos para seguir!';
+    case 'out': return '¡Buen trabajo, descansa!';
+    default: return '¡Bienvenido/a!';
+  }
+}
+function actionPromptHint(type: MarkType): string {
+  switch (type) {
+    case 'in': return 'animándole al inicio de su jornada (p. ej. "¡que tengas un gran turno!")';
+    case 'lunch_out': return 'deseándole un buen almuerzo (p. ej. "¡buen provecho, disfruta!")';
+    case 'lunch_in': return 'dándole la bienvenida de regreso del almuerzo (p. ej. "¡vamos con la segunda mitad!")';
+    case 'out': return 'felicitándole por terminar su jornada (p. ej. "¡buen trabajo, descansa!")';
+    default: return 'con un mensaje cálido y breve';
+  }
 }
 
 function firstNameOf(name: string): string {
@@ -202,9 +217,7 @@ export class FaceService {
               'Decide si es la MISMA persona y da una confianza 0-100 (probabilidad de que la foto a verificar sea ese trabajador). ' +
               'Sé prudente: si dudas, o la cara está borrosa, muy oscura, cortada o de espaldas, baja la confianza por debajo de 50. ' +
               `Además escribe "phrase": una frase MUY corta (máx. 10 palabras), cálida, en español, dirigida a "${firstName}", ` +
-              (ctx.type === 'in'
-                ? 'animándole al inicio de su jornada (p. ej. "¡que tengas un gran turno!"). '
-                : 'felicitándole por terminar su jornada (p. ej. "¡buen trabajo, descansa!"). ') +
+              actionPromptHint(ctx.type) + '. ' +
               `NO incluyas "buenos días", "buenas tardes" ni "buenas noches" en "phrase" (el saludo de la hora lo pone el sistema; ahora es ${partOfDay(ctx.hour)}). ` +
               'Responde SOLO con JSON: {"match": true|false, "confidence": <entero 0-100>, "reasoning": "<motivo breve en español>", "phrase": "<la frase>"}.',
           },

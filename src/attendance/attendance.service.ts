@@ -16,6 +16,15 @@ import { WorkScheduleService } from '../schedule/work-schedule.service';
 import { MarkDto } from './dto/mark.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 
+/** Secuencia esperada de marcajes en un día. lunch puede saltarse. */
+const SEQUENCE: AttendanceType[] = ['in', 'lunch_out', 'lunch_in', 'out'];
+function nextInSequence(last: AttendanceType | undefined): AttendanceType {
+  if (!last) return 'in';
+  const i = SEQUENCE.indexOf(last);
+  if (i < 0 || i === SEQUENCE.length - 1) return 'in';
+  return SEQUENCE[i + 1];
+}
+
 const DEFAULT_THRESHOLD = 55;
 
 function startOfDay(d = new Date()): Date {
@@ -82,18 +91,13 @@ export class AttendanceService {
       throw new BadRequestException(e?.message || 'Foto inválida');
     }
 
-    // Marcajes de hoy del trabajador (para alternar entrada/salida y saber si es el primer "in")
+    // Marcajes de hoy del trabajador (para determinar el siguiente tipo y si es el primer "in")
     const todays = await this.repo.find({
       where: { workerId: worker.id, createdAt: Between(startOfDay(), endOfDay()) },
       order: { createdAt: 'ASC' },
     });
     const lastToday = todays[todays.length - 1];
-    const type: AttendanceType =
-      dto.type === 'in' || dto.type === 'out'
-        ? dto.type
-        : lastToday?.type === 'in'
-          ? 'out'
-          : 'in';
+    const type: AttendanceType = dto.type ? dto.type : nextInSequence(lastToday?.type);
     const isFirstInOfDay = type === 'in' && !todays.some((a) => a.type === 'in');
     // Hora local del trabajador (la envía el navegador); si no llega, hora del servidor.
     const hour = typeof dto.clientHour === 'number' ? dto.clientHour : new Date().getHours();
@@ -136,6 +140,18 @@ export class AttendanceService {
     const schedule = await this.workSchedule.get();
     const ev = this.workSchedule.evaluate({ type, at: new Date(), schedule, isFirstInOfDay });
 
+    // --- Distancia a la oficina (si está configurada) ---
+    const distance = WorkScheduleService.haversine(
+      dto.latitude ?? null,
+      dto.longitude ?? null,
+      schedule.officeLatitude ?? null,
+      schedule.officeLongitude ?? null,
+    );
+    const insideOffice = distance != null && distance <= (schedule.officeRadiusMeters || 0);
+    const locationLabel =
+      (dto.locationLabel || '').trim() ||
+      (insideOffice && schedule.officeName ? schedule.officeName : '');
+
     const record = this.repo.create({
       workerId: worker.id,
       type,
@@ -151,7 +167,9 @@ export class AttendanceService {
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
       accuracy: dto.accuracy ?? null,
-      locationLabel: (dto.locationLabel || '').trim(),
+      distanceFromOfficeMeters: distance != null ? Math.round(distance) : null,
+      insideOffice,
+      locationLabel,
       deviceInfo: (dto.deviceInfo || '').slice(0, 200),
     });
     const saved = await this.repo.save(record);
@@ -166,6 +184,8 @@ export class AttendanceService {
       greeting,
       message: greeting,
       schedule: ev,
+      distanceFromOfficeMeters: distance != null ? Math.round(distance) : null,
+      insideOffice,
       timestamp: saved.createdAt,
       worker: this.publicWorker(worker),
     };
@@ -178,14 +198,39 @@ export class AttendanceService {
       order: { createdAt: 'ASC' },
     });
     const last = todays[todays.length - 1];
-    const nextAction: AttendanceType = last?.type === 'in' ? 'out' : 'in';
+    const nextAction = nextInSequence(last?.type);
     const firstIn = todays.find((a) => a.type === 'in') || null;
+    const lunchOut = todays.find((a) => a.type === 'lunch_out') || null;
+    const lunchIn = todays.find((a) => a.type === 'lunch_in') || null;
     const lastOut = [...todays].reverse().find((a) => a.type === 'out') || null;
-    let workedHours: number | null = null;
-    if (firstIn && lastOut && new Date(lastOut.createdAt) > new Date(firstIn.createdAt)) {
-      workedHours = (new Date(lastOut.createdAt).getTime() - new Date(firstIn.createdAt).getTime()) / 3600000;
+    const dayDone = !!lastOut;
+    // Minutos trabajados = (lastOut o ahora si aún no salió) - firstIn - duración del almuerzo
+    let workedMinutes: number | null = null;
+    if (firstIn) {
+      const endAt = lastOut ? new Date(lastOut.createdAt) : new Date();
+      let ms = endAt.getTime() - new Date(firstIn.createdAt).getTime();
+      let lunchMs = 0;
+      if (lunchOut && lunchIn && new Date(lunchIn.createdAt) > new Date(lunchOut.createdAt)) {
+        lunchMs = new Date(lunchIn.createdAt).getTime() - new Date(lunchOut.createdAt).getTime();
+      } else if (lunchOut && !lunchIn) {
+        // sigue en almuerzo: no contar el tiempo desde lunchOut hasta ahora
+        lunchMs = endAt.getTime() - new Date(lunchOut.createdAt).getTime();
+      }
+      ms -= lunchMs;
+      workedMinutes = Math.max(0, Math.round(ms / 60000));
     }
-    return { date: startOfDay().toISOString(), nextAction, marks: todays, firstIn, lastOut, workedHours };
+    return {
+      date: startOfDay().toISOString(),
+      nextAction,
+      marks: todays,
+      firstIn,
+      lunchOut,
+      lunchIn,
+      lastOut,
+      dayDone,
+      workedMinutes,
+      workedHours: workedMinutes != null ? workedMinutes / 60 : null,
+    };
   }
 
   async myAttendance(userId: string, opts: { month?: string; from?: string; to?: string }) {
