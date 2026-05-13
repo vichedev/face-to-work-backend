@@ -58,6 +58,13 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL: ${GROQ_MODEL:-meta-llama/llama-4-scout-17b-16e-instruct}
       GROQ_MATCH_THRESHOLD: ${GROQ_MATCH_THRESHOLD:-55}
+      # Web Push (notificaciones a navegadores)
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      # Marca usada por el PDF de nómina y el emisor 2FA
+      COMPANY_NAME: ${COMPANY_NAME:-Face to Work}
+      COMPANY_TAGLINE: ${COMPANY_TAGLINE:-Control de asistencia con reconocimiento facial}
     volumes:
       - ftw_uploads:/app/uploads
       # El frontend compilado se monta desde el host: para actualizarlo basta con
