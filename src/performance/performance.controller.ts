@@ -9,13 +9,16 @@ export class PerformanceController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   me(@Req() req: any) {
-    return this.service.forWorker(req.user.id, req.user.id, req.user.role === 'admin');
+    const isStaff = req.user.role === 'admin' || req.user.role === 'supervisor';
+    return this.service.forWorker(req.user.id, req.user.id, isStaff);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('worker/:id')
   worker(@Req() req: any, @Param('id') id: string) {
-    if (req.user.role !== 'admin') throw new ForbiddenException('Sólo administradores');
+    if (req.user.role !== 'admin' && req.user.role !== 'supervisor') {
+      throw new ForbiddenException('Sólo administradores y supervisores');
+    }
     return this.service.forWorker(id, req.user.id, true);
   }
 }

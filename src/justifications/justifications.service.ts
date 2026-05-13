@@ -105,6 +105,11 @@ export class JustificationsService {
 
   // -- Admin --
 
+  /** Cuántas justificaciones están pendientes (para badge del sidebar). */
+  countPending() {
+    return this.repo.count({ where: { status: 'pending' } });
+  }
+
   async findAll(opts: { workerId?: string; status?: string; from?: string; to?: string; limit?: number }) {
     const qb = this.repo
       .createQueryBuilder('j')

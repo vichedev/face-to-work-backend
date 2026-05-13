@@ -20,6 +20,8 @@ interface CreateUserData {
   photoUrl?: string;
   faceDescriptor?: Record<string, any> | null;
   active?: boolean;
+  /** Si true, forzará al usuario a cambiar la contraseña en su primer login. */
+  mustChangePassword?: boolean;
 }
 
 interface UpdateUserData {
@@ -92,16 +94,41 @@ export class UsersService {
       photoUrl: data.photoUrl || '',
       faceDescriptor: data.faceDescriptor ?? null,
       active: data.active ?? true,
+      mustChangePassword: data.mustChangePassword ?? false,
     });
     return this.usersRepo.save(user);
   }
 
+  /** Resetea la contraseña a una temporal y marca `mustChangePassword=true`. Usado por el admin. */
+  async resetPassword(id: string, tempPassword: string) {
+    const user = await this.usersRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    const hash = await bcrypt.hash(tempPassword, 10);
+    // tokenVersion + 1 invalida cualquier sesión activa que tuviera ese usuario.
+    await this.usersRepo.update(id, {
+      password: hash,
+      mustChangePassword: true,
+      tokenVersion: (user.tokenVersion || 0) + 1,
+    });
+    return { ok: true };
+  }
+
+  /** Incrementa tokenVersion → invalida TODOS los JWTs emitidos para ese usuario. */
+  async bumpTokenVersion(id: string) {
+    const user = await this.usersRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    await this.usersRepo.update(id, { tokenVersion: (user.tokenVersion || 0) + 1 });
+    return { ok: true };
+  }
+
   async update(id: string, data: UpdateUserData): Promise<User> {
-    // Cargamos también el hash de la contraseña (es `select: false`) para que un save()
-    // sin cambiar la contraseña no la deje en NULL.
+    // Cargamos los campos `select: false` (password y totpSecret) para que un save()
+    // sin modificarlos NO los pise con su valor por defecto. Si no lo hacemos, un
+    // admin con 2FA activado perdería el secreto al editarse cualquier campo.
     const user = await this.usersRepo
       .createQueryBuilder('u')
       .addSelect('u.password')
+      .addSelect('u.totpSecret')
       .where('u.id = :id', { id })
       .getOne();
     if (!user) throw new NotFoundException('Usuario no encontrado');

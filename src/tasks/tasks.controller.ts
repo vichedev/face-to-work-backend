@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { StaffGuard } from '../auth/staff.guard';
 import { TasksService } from './tasks.service';
 import { AuditService, auditCtx } from '../audit/audit.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/create-task.dto';
@@ -23,8 +24,8 @@ export class TasksController {
     private readonly audit: AuditService,
   ) {}
 
-  // ── Admin ──
-  @UseGuards(AdminGuard)
+  // ── Staff (admin + supervisor) ──
+  @UseGuards(StaffGuard)
   @Post()
   async create(@Req() req: any, @Body() dto: CreateTaskDto) {
     const t = await this.service.create(req.user.id, dto);
@@ -39,7 +40,7 @@ export class TasksController {
     return t;
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Post('bulk-import')
   async bulkImport(@Req() req: any, @Body() body: { csv: string }) {
     if (!body?.csv || typeof body.csv !== 'string') {
@@ -59,7 +60,7 @@ export class TasksController {
     return result;
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get()
   list(
     @Query('workerId') workerId?: string,
@@ -69,7 +70,7 @@ export class TasksController {
     return this.service.findAll({ workerId, status, limit: limit ? parseInt(limit, 10) : undefined });
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Patch(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateTaskDto) {
     const before = await this.service.findOne(id);

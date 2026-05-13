@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { StaffGuard } from '../auth/staff.guard';
 import { JustificationsService } from './justifications.service';
 import { AuditService, auditCtx } from '../audit/audit.service';
 import { CreateJustificationDto } from './dto/create-justification.dto';
@@ -44,7 +45,7 @@ export class JustificationsController {
   }
 
   // -- Admin --
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get()
   list(
     @Query('workerId') workerId?: string,
@@ -62,7 +63,7 @@ export class JustificationsController {
     });
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Patch(':id/decide')
   async decide(@Req() req: any, @Param('id') id: string, @Body() dto: DecideJustificationDto) {
     const before = await this.service.findOne(id);

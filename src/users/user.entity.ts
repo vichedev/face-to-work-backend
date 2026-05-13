@@ -8,7 +8,13 @@ import {
 } from 'typeorm';
 import { Attendance } from '../attendance/attendance.entity';
 
-export type UserRole = 'admin' | 'worker';
+/**
+ * - `admin`: super-administrador. Acceso total: jornada, marca, audit, seguridad, crear otros admins.
+ * - `supervisor`: solo lectura + aprobar/rechazar justificaciones + crear tareas. No edita jornada,
+ *   marca, audit, ni administra otros admins.
+ * - `worker`: marca su propia asistencia, ve su panel.
+ */
+export type UserRole = 'admin' | 'supervisor' | 'worker';
 
 @Entity('users')
 export class User {
@@ -64,6 +70,22 @@ export class User {
 
   @Column({ default: false })
   totpEnabled: boolean;
+
+  /**
+   * Versión del token JWT. Cada vez que se rota (cambio de contraseña, "cerrar
+   * todas las sesiones") se incrementa, lo que invalida cualquier JWT emitido
+   * con la versión anterior. El JwtStrategy compara este valor con el del payload.
+   */
+  @Column({ type: 'int', default: 0 })
+  tokenVersion: number;
+
+  /**
+   * Si es true, al iniciar sesión el frontend obliga al usuario a fijar una nueva
+   * contraseña antes de poder usar la app. Se activa cuando el admin crea la cuenta
+   * o resetea la contraseña. Se desactiva al cambiarla con éxito.
+   */
+  @Column({ default: false })
+  mustChangePassword: boolean;
 
   @OneToMany(() => Attendance, (a) => a.worker)
   attendances: Attendance[];

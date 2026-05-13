@@ -13,6 +13,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { StaffGuard } from '../auth/staff.guard';
 import { AttendanceService } from './attendance.service';
 import { AuditService, auditCtx } from '../audit/audit.service';
 import { MarkDto } from './dto/mark.dto';
@@ -66,7 +67,7 @@ export class AttendanceController {
 
   // --- Administración (panel general) ---
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get()
   list(
     @Query('workerId') workerId?: string,
@@ -78,19 +79,19 @@ export class AttendanceController {
     return this.service.list({ workerId, from, to, status, limit: limit ? parseInt(limit, 10) : undefined });
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get('today')
   today() {
     return this.service.today();
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get('summary/dashboard')
   dashboard() {
     return this.service.dashboard();
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get('summary/analytics')
   analytics(@Query('days') days?: string) {
     const n = days ? Math.max(7, Math.min(parseInt(days, 10) || 30, 90)) : 30;
@@ -98,14 +99,14 @@ export class AttendanceController {
   }
 
   /** Devuelve todos los marcajes con coordenadas para un día (para mostrar en mapa). */
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get('summary/map')
   mapPoints(@Query('day') day?: string) {
     return this.service.mapPoints(day);
   }
 
-  // Sólo los administradores pueden corregir o eliminar un marcaje
-  @UseGuards(AdminGuard)
+  // Supervisores pueden CORREGIR marcajes; sólo el admin puede ELIMINAR.
+  @UseGuards(StaffGuard)
   @Patch(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateAttendanceDto) {
     const before = await this.service.findOne(id);

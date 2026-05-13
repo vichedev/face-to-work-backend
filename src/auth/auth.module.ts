@@ -9,11 +9,15 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { TwoFactorService } from './two-factor.service';
+import { UploadsModule } from '../uploads/uploads.module';
+import { FaceModule } from '../face/face.module';
 
 @Module({
   imports: [
     UsersModule,
     TypeOrmModule.forFeature([User]),
+    UploadsModule,
+    FaceModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

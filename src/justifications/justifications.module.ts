@@ -17,5 +17,6 @@ import { PushModule } from '../push/push.module';
   ],
   providers: [JustificationsService],
   controllers: [JustificationsController],
+  exports: [JustificationsService],
 })
 export class JustificationsModule {}

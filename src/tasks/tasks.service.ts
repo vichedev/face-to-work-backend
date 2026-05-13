@@ -59,6 +59,15 @@ export class TasksService {
     return saved;
   }
 
+  /** Cuántas tareas asignadas a trabajadores están pendientes o en curso (para badge del sidebar). */
+  async countOpen(): Promise<{ pending: number; inProgress: number }> {
+    const [pending, inProgress] = await Promise.all([
+      this.repo.count({ where: { status: 'pending' } }),
+      this.repo.count({ where: { status: 'in_progress' } }),
+    ]);
+    return { pending, inProgress };
+  }
+
   async findAll(opts: { workerId?: string; status?: string; limit?: number }) {
     const qb = this.repo.createQueryBuilder('t')
       .leftJoinAndSelect('t.worker', 'w')

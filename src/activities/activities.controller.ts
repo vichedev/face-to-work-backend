@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { StaffGuard } from '../auth/staff.guard';
 import { ActivitiesService } from './activities.service';
 import { AuditService, auditCtx } from '../audit/audit.service';
 import { StartActivityDto } from './dto/start-activity.dto';
@@ -74,14 +75,14 @@ export class ActivitiesController {
   @Get(':id')
   async get(@Req() req: any, @Param('id') id: string) {
     const a = await this.service.findOne(id);
-    if (req.user.role !== 'admin' && a.workerId !== req.user.id) {
+    if (req.user.role !== 'admin' && req.user.role !== 'supervisor' && a.workerId !== req.user.id) {
       throw new ForbiddenException('No tienes acceso a esta actividad');
     }
     return a;
   }
 
   // -- Administración --
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get()
   list(
     @Query('workerId') workerId?: string,
@@ -93,7 +94,7 @@ export class ActivitiesController {
     return this.service.findAll({ workerId, from, to, status, limit: limit ? parseInt(limit, 10) : undefined });
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Patch(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: AdminUpdateActivityDto) {
     const before = await this.service.findOne(id);

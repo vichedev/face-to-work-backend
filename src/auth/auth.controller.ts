@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, UseGuards, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { AdminGuard } from './admin.guard';
 import { TwoFactorService } from './two-factor.service';
 import { Disable2FADto, TotpLoginDto, VerifyTotpDto } from './dto/two-factor.dto';
+import { ChangePasswordDto, UpdateProfileDto } from './dto/profile.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -38,6 +39,26 @@ export class AuthController {
   @Get('me')
   me(@Req() req: any) {
     return req.user;
+  }
+
+  // ── Perfil propio (admin o worker) ──
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
+    return this.authService.updateProfile(req.user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(req.user.id, dto);
+  }
+
+  /** Invalida todas las otras sesiones del usuario (incrementa tokenVersion). */
+  @UseGuards(JwtAuthGuard)
+  @Post('logout-all')
+  logoutAll(@Req() req: any) {
+    return this.authService.logoutAllOtherSessions(req.user.id);
   }
 
   // ── 2FA: activación / verificación / desactivación (sólo admin) ──

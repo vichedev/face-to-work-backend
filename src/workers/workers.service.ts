@@ -63,8 +63,18 @@ export class WorkersService {
       photoUrl,
       faceDescriptor,
       active: dto.active ?? true,
+      // Forzar al trabajador a cambiar la contraseña en su primer login.
+      mustChangePassword: true,
     });
     return this.strip(created);
+  }
+
+  /** Resetea la contraseña a una temporal y la devuelve al admin (solo en respuesta). */
+  async resetPassword(id: string): Promise<{ tempPassword: string }> {
+    await this.users.findWorkerOrThrow(id);
+    const tempPassword = generateTempPassword();
+    await this.users.resetPassword(id, tempPassword);
+    return { tempPassword };
   }
 
   async update(id: string, dto: UpdateWorkerDto): Promise<PublicWorker> {
@@ -90,4 +100,14 @@ export class WorkersService {
     await this.users.findWorkerOrThrow(id);
     return this.users.remove(id);
   }
+}
+
+/** Genera una contraseña temporal legible (12 caracteres, alfanumérica sin caracteres confusos). */
+function generateTempPassword(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnopqrstuvwxyz';
+  let out = '';
+  for (let i = 0; i < 12; i++) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
 }

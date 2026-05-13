@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
-import { AdminGuard } from '../auth/admin.guard';
+import { StaffGuard } from '../auth/staff.guard';
 import { PayrollService } from './payroll.service';
 import { renderPayrollPdf } from './payroll.pdf';
 
@@ -31,21 +31,21 @@ export class PayrollController {
     private readonly config: ConfigService,
   ) {}
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get(':workerId')
   json(@Param('workerId') workerId: string, @Query('month') month?: string) {
     const { year, month: m } = parseMonth(month);
     return this.service.computeMonth(workerId, year, m);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get(':workerId/trend')
   trend(@Param('workerId') workerId: string, @Query('months') months?: string) {
     const n = months ? Math.max(2, Math.min(parseInt(months, 10) || 6, 24)) : 6;
     return this.service.monthlyTrend(workerId, n);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffGuard)
   @Get(':workerId/pdf')
   async pdf(
     @Param('workerId') workerId: string,

@@ -17,10 +17,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string; role?: string }) {
+  async validate(payload: { sub: string; email: string; role?: string; tv?: number }) {
     const user = await this.usersService.findById(payload.sub);
     if (!user || !user.active) {
       throw new UnauthorizedException();
+    }
+    // Si el JWT viene de una versión anterior (cambio de pw / logout-all) → invalidamos.
+    if (typeof payload.tv === 'number' && payload.tv !== (user.tokenVersion || 0)) {
+      throw new UnauthorizedException('Sesión expirada');
     }
     return {
       id: user.id,
@@ -35,6 +39,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       hasFace: !!user.faceDescriptor,
       active: user.active,
       totpEnabled: !!user.totpEnabled,
+      mustChangePassword: !!user.mustChangePassword,
     };
   }
 }
