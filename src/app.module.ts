@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { DataSource, DataSourceOptions } from 'typeorm';
 import { join } from 'path';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -14,6 +15,34 @@ import { WorkScheduleModule } from './schedule/work-schedule.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { ActivitiesModule } from './activities/activities.module';
 import { PerformanceModule } from './performance/performance.module';
+
+/**
+ * Arregla diferencias de esquema que TypeORM no migra limpiamente
+ * (por ejemplo, varchar(8) → text en columnas con datos existentes).
+ * Corre ANTES de `synchronize`.
+ */
+async function preSyncFixups(ds: DataSource): Promise<void> {
+  const log = new Logger('SchemaFixups');
+  const qr = ds.createQueryRunner();
+  try {
+    // attendances.type: pasó de varchar(8) a text (necesitamos 'lunch_out' / 'lunch_in')
+    // El diff multi-paso de TypeORM falla con datos existentes; lo forzamos limpio.
+    if (await qr.hasTable('attendances')) {
+      const col = await qr.query(
+        `SELECT data_type, character_maximum_length FROM information_schema.columns
+         WHERE table_name='attendances' AND column_name='type'`,
+      );
+      if (col?.[0] && col[0].data_type !== 'text') {
+        log.log(`Migrando attendances.type (${col[0].data_type}${col[0].character_maximum_length ? `(${col[0].character_maximum_length})` : ''}) → text`);
+        await ds.query(`ALTER TABLE attendances ALTER COLUMN type TYPE text`);
+      }
+    }
+  } catch (e: any) {
+    log.warn(`pre-sync fixup falló: ${e?.message || e}`);
+  } finally {
+    await qr.release();
+  }
+}
 
 @Module({
   imports: [
@@ -41,8 +70,21 @@ import { PerformanceModule } from './performance/performance.module';
         password: config.get<string>('DB_PASSWORD'),
         database: config.get<string>('DB_NAME'),
         autoLoadEntities: true,
-        synchronize: config.get<string>('DB_SYNC') !== 'false',
+        // No dejamos que TypeORM corra `synchronize` directamente: lo hacemos
+        // manualmente tras los fixups, para que diffs problemáticos no rompan el arranque.
+        synchronize: false,
       }),
+      dataSourceFactory: async (options?: DataSourceOptions) => {
+        if (!options) throw new Error('TypeORM options no definidos');
+        const config = new ConfigService(); // ConfigModule global, ya cargado
+        const wantSync = config.get<string>('DB_SYNC') !== 'false';
+        const ds = await new DataSource(options).initialize();
+        if (wantSync) {
+          await preSyncFixups(ds);
+          await ds.synchronize();
+        }
+        return ds;
+      },
     }),
     AuthModule,
     UsersModule,
