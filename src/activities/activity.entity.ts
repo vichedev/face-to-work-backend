@@ -44,11 +44,11 @@ export class Activity {
   @Column({ default: '' })
   startLocationLabel: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   startedAt: Date;
 
   // --- Fin ---
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   endedAt: Date | null;
 
   @Column({ type: 'text', default: '' })
@@ -72,6 +72,6 @@ export class Activity {
   @Column({ type: 'varchar', length: 16, default: 'in_progress' })
   status: ActivityStatus;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

@@ -84,9 +84,9 @@ export class WorkSchedule {
   @Column({ default: false })
   geofenceEnabled: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

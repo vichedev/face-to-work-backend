@@ -95,7 +95,7 @@ export class Attendance {
   @Column({ default: '' })
   deviceInfo: string;
 
-  /** Fecha y hora del marcaje */
-  @CreateDateColumn()
+  /** Fecha y hora del marcaje (timestamptz: el almacenado siempre es UTC, el cliente lo formatea a su zona). */
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }

@@ -60,9 +60,9 @@ export class User {
   @OneToMany(() => Attendance, (a) => a.worker)
   attendances: Attendance[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

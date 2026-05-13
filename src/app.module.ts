@@ -17,16 +17,20 @@ import { ActivitiesModule } from './activities/activities.module';
 import { PerformanceModule } from './performance/performance.module';
 
 /**
- * Arregla diferencias de esquema que TypeORM no migra limpiamente
- * (por ejemplo, varchar(8) → text en columnas con datos existentes).
+ * Arregla diferencias de esquema que TypeORM no migra limpiamente:
+ *  - `attendances.type` de varchar(8) → text (para 'lunch_out' / 'lunch_in').
+ *  - Columnas `timestamp without time zone` → `timestamptz`. El driver `pg`
+ *    inserta los valores como UTC pero los relee como hora LOCAL del proceso
+ *    Node; al pasar el contenedor a TZ=America/Guayaquil eso provoca un
+ *    desfase de 5 h (se muestra "16:25" cuando la marca real fue "11:25").
+ *    Con timestamptz el round-trip es estable sin importar la TZ del proceso.
  * Corre ANTES de `synchronize`.
  */
 async function preSyncFixups(ds: DataSource): Promise<void> {
   const log = new Logger('SchemaFixups');
   const qr = ds.createQueryRunner();
   try {
-    // attendances.type: pasó de varchar(8) a text (necesitamos 'lunch_out' / 'lunch_in')
-    // El diff multi-paso de TypeORM falla con datos existentes; lo forzamos limpio.
+    // 1) attendances.type → text (1ª migración).
     if (await qr.hasTable('attendances')) {
       const col = await qr.query(
         `SELECT data_type, character_maximum_length FROM information_schema.columns
@@ -35,6 +39,33 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
       if (col?.[0] && col[0].data_type !== 'text') {
         log.log(`Migrando attendances.type (${col[0].data_type}${col[0].character_maximum_length ? `(${col[0].character_maximum_length})` : ''}) → text`);
         await ds.query(`ALTER TABLE attendances ALTER COLUMN type TYPE text`);
+      }
+    }
+
+    // 2) Columnas timestamp → timestamptz (interpretando lo guardado como UTC).
+    const timestampTargets: Array<[string, string]> = [
+      ['users', 'createdAt'],
+      ['users', 'updatedAt'],
+      ['attendances', 'createdAt'],
+      ['activities', 'startedAt'],
+      ['activities', 'endedAt'],
+      ['activities', 'updatedAt'],
+      ['work_schedule', 'createdAt'],
+      ['work_schedule', 'updatedAt'],
+    ];
+    for (const [table, column] of timestampTargets) {
+      if (!(await qr.hasTable(table))) continue;
+      const info = await qr.query(
+        `SELECT data_type FROM information_schema.columns
+         WHERE table_name=$1 AND column_name=$2`,
+        [table, column],
+      );
+      const current = info?.[0]?.data_type;
+      if (current === 'timestamp without time zone') {
+        log.log(`Migrando ${table}.${column} (timestamp) → timestamptz (UTC)`);
+        await ds.query(
+          `ALTER TABLE "${table}" ALTER COLUMN "${column}" TYPE timestamptz USING "${column}" AT TIME ZONE 'UTC'`,
+        );
       }
     }
   } catch (e: any) {
