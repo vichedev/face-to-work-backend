@@ -154,6 +154,12 @@ export class AttendanceService {
       (dto.locationLabel || '').trim() ||
       (insideOffice && schedule.officeName ? schedule.officeName : '');
 
+    // Liveness: el cliente envía un % de diferencia entre 2 frames consecutivos.
+    // Si está por encima del umbral lo aceptamos como rostro real (no foto impresa).
+    const LIVENESS_THRESHOLD = 2.5;
+    const livenessScore = typeof dto.livenessScore === 'number' ? Math.max(0, Math.min(100, dto.livenessScore)) : null;
+    const livenessVerified = livenessScore != null && livenessScore >= LIVENESS_THRESHOLD;
+
     const record = this.repo.create({
       workerId: worker.id,
       type,
@@ -173,6 +179,8 @@ export class AttendanceService {
       insideOffice,
       locationLabel,
       deviceInfo: (dto.deviceInfo || '').slice(0, 200),
+      livenessScore,
+      livenessVerified,
     });
     const saved = await this.repo.save(record);
     const full = await this.repo.findOne({ where: { id: saved.id }, relations: ['worker'] });
@@ -188,6 +196,8 @@ export class AttendanceService {
       schedule: ev,
       distanceFromOfficeMeters: distance != null ? Math.round(distance) : null,
       insideOffice,
+      livenessScore,
+      livenessVerified,
       timestamp: saved.createdAt,
       worker: this.publicWorker(worker),
     };

@@ -38,4 +38,8 @@ export class MarkDto {
    *  Secuencia: in → lunch_out → lunch_in → out  (lunch puede saltarse) */
   @IsOptional() @IsIn(['in', 'lunch_out', 'lunch_in', 'out'])
   type?: 'in' | 'lunch_out' | 'lunch_in' | 'out';
+
+  /** % de diferencia entre dos frames capturados con ~1 s de separación. Si viene < umbral, el marcaje se acepta pero se etiqueta como "sin verificar liveness". */
+  @IsOptional() @IsNumber() @Min(0) @Max(100)
+  livenessScore?: number;
 }

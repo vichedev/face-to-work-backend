@@ -95,6 +95,15 @@ export class Attendance {
   @Column({ default: '' })
   deviceInfo: string;
 
+  // --- Liveness (anti-fraude: detecta fotos impresas) ---
+  /** % de diferencia entre dos frames capturados con ~1 s de separación. >= 2.5 ⇒ persona real. */
+  @Column({ type: 'float', nullable: true })
+  livenessScore: number | null;
+
+  /** True si pasó la verificación de "vida" (score sobre el umbral). False si vino de "Subir foto" o frames idénticos. */
+  @Column({ default: false })
+  livenessVerified: boolean;
+
   /** Fecha y hora del marcaje (timestamptz: el almacenado siempre es UTC, el cliente lo formatea a su zona). */
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

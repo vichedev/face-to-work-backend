@@ -34,6 +34,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       photoUrl: user.photoUrl,
       hasFace: !!user.faceDescriptor,
       active: user.active,
+      totpEnabled: !!user.totpEnabled,
     };
   }
 }
