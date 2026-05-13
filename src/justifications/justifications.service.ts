@@ -13,6 +13,7 @@ import * as path from 'path';
 import { Justification } from './justification.entity';
 import { User } from '../users/user.entity';
 import { UploadsService } from '../uploads/uploads.service';
+import { PushService } from '../push/push.service';
 import { CreateJustificationDto } from './dto/create-justification.dto';
 import { DecideJustificationDto } from './dto/decide-justification.dto';
 
@@ -27,6 +28,7 @@ export class JustificationsService {
     @InjectRepository(Justification) private readonly repo: Repository<Justification>,
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     private readonly uploads: UploadsService,
+    private readonly push: PushService,
   ) {}
 
   /** Acepta tanto data URL image/* como application/pdf y guarda en /uploads. */
@@ -130,6 +132,14 @@ export class JustificationsService {
     j.adminNote = (dto.adminNote || '').trim();
     j.decidedById = adminId;
     j.decidedAt = new Date();
-    return this.repo.save(j);
+    const saved = await this.repo.save(j);
+    // Avisar al trabajador del resultado.
+    this.push.notifyUser(saved.workerId, {
+      title: saved.status === 'approved' ? 'Justificación aprobada' : 'Justificación rechazada',
+      body: (saved.adminNote || (saved.status === 'approved' ? 'Tu justificación fue aprobada.' : 'Tu justificación fue rechazada.')).slice(0, 200),
+      url: '/me',
+      tag: 'justification-' + saved.id,
+    }).catch(() => {});
+    return saved;
   }
 }
