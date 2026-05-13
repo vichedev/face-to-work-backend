@@ -17,7 +17,14 @@ FROM node:20-slim AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       tini \
+      tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# Zona horaria del contenedor (Node + Postgres-tools la usan).
+# El valor real lo pisa la variable TZ que pasa docker-compose desde .env.production.
+ENV TZ=America/Guayaquil
+RUN ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo "$TZ" > /etc/timezone
 
 ENV NODE_ENV=production
 
