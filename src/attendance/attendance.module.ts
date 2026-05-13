@@ -7,6 +7,7 @@ import { AttendanceController } from './attendance.controller';
 import { FaceModule } from '../face/face.module';
 import { UploadsModule } from '../uploads/uploads.module';
 import { WorkScheduleModule } from '../schedule/work-schedule.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { WorkScheduleModule } from '../schedule/work-schedule.module';
     FaceModule,
     UploadsModule,
     WorkScheduleModule,
+    AuditModule,
   ],
   providers: [AttendanceService],
   controllers: [AttendanceController],

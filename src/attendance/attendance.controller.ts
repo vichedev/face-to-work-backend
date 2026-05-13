@@ -14,12 +14,29 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { AttendanceService } from './attendance.service';
+import { AuditService, auditCtx } from '../audit/audit.service';
 import { MarkDto } from './dto/mark.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 
+function snapshotAttendance(a: any) {
+  if (!a) return null;
+  return {
+    id: a.id,
+    workerId: a.workerId,
+    type: a.type,
+    createdAt: a.createdAt,
+    locationLabel: a.locationLabel,
+    scheduleStatus: a.scheduleStatus,
+    scheduleMinutes: a.scheduleMinutes,
+  };
+}
+
 @Controller('attendance')
 export class AttendanceController {
-  constructor(private readonly service: AttendanceService) {}
+  constructor(
+    private readonly service: AttendanceService,
+    private readonly audit: AuditService,
+  ) {}
 
   // --- Trabajador autenticado: marca y consulta desde su propio panel ---
 
@@ -76,13 +93,33 @@ export class AttendanceController {
   // Sólo los administradores pueden corregir o eliminar un marcaje
   @UseGuards(AdminGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateAttendanceDto) {
-    return this.service.adminUpdate(id, dto);
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateAttendanceDto) {
+    const before = await this.service.findOne(id);
+    const updated = await this.service.adminUpdate(id, dto);
+    await this.audit.record(auditCtx(req), {
+      entity: 'attendance',
+      entityId: id,
+      action: 'update',
+      summary: `Corrigió marcaje ${updated?.type || ''} de ${updated?.worker?.name || 'trabajador'}`,
+      before: snapshotAttendance(before),
+      after: snapshotAttendance(updated),
+    });
+    return updated;
   }
 
   @UseGuards(AdminGuard)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.adminRemove(id);
+  async remove(@Req() req: any, @Param('id') id: string) {
+    const before = await this.service.findOne(id);
+    const result = await this.service.adminRemove(id);
+    await this.audit.record(auditCtx(req), {
+      entity: 'attendance',
+      entityId: id,
+      action: 'delete',
+      summary: `Eliminó marcaje ${before?.type || ''} de ${before?.worker?.name || 'trabajador'}`,
+      before: snapshotAttendance(before),
+      after: null,
+    });
+    return result;
   }
 }

@@ -24,4 +24,8 @@ export class StartActivityDto {
 
   @IsOptional() @IsString() @MaxLength(160)
   locationLabel?: string;
+
+  /** Foto base64 opcional (data URL o sólo base64). Se persiste como JPG en uploads/. */
+  @IsOptional() @IsString()
+  photoBase64?: string;
 }

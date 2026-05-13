@@ -14,13 +14,30 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { ActivitiesService } from './activities.service';
+import { AuditService, auditCtx } from '../audit/audit.service';
 import { StartActivityDto } from './dto/start-activity.dto';
 import { EndActivityDto } from './dto/end-activity.dto';
 import { AdminUpdateActivityDto } from './dto/admin-update-activity.dto';
 
+function snapshotActivity(a: any) {
+  if (!a) return null;
+  return {
+    id: a.id,
+    workerId: a.workerId,
+    title: a.title,
+    status: a.status,
+    startedAt: a.startedAt,
+    endedAt: a.endedAt,
+    durationMinutes: a.durationMinutes,
+  };
+}
+
 @Controller('activities')
 export class ActivitiesController {
-  constructor(private readonly service: ActivitiesService) {}
+  constructor(
+    private readonly service: ActivitiesService,
+    private readonly audit: AuditService,
+  ) {}
 
   // -- Trabajador --
   @UseGuards(JwtAuthGuard)
@@ -78,13 +95,33 @@ export class ActivitiesController {
 
   @UseGuards(AdminGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: AdminUpdateActivityDto) {
-    return this.service.adminUpdate(id, dto);
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: AdminUpdateActivityDto) {
+    const before = await this.service.findOne(id);
+    const updated = await this.service.adminUpdate(id, dto);
+    await this.audit.record(auditCtx(req), {
+      entity: 'activity',
+      entityId: id,
+      action: 'update',
+      summary: `Corrigió actividad "${updated?.title || ''}" de ${before?.worker?.name || 'trabajador'}`,
+      before: snapshotActivity(before),
+      after: snapshotActivity(updated),
+    });
+    return updated;
   }
 
   @UseGuards(AdminGuard)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.adminRemove(id);
+  async remove(@Req() req: any, @Param('id') id: string) {
+    const before = await this.service.findOne(id);
+    const result = await this.service.adminRemove(id);
+    await this.audit.record(auditCtx(req), {
+      entity: 'activity',
+      entityId: id,
+      action: 'delete',
+      summary: `Eliminó actividad "${before?.title || ''}" de ${before?.worker?.name || 'trabajador'}`,
+      before: snapshotActivity(before),
+      after: null,
+    });
+    return result;
   }
 }

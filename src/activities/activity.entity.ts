@@ -44,6 +44,10 @@ export class Activity {
   @Column({ default: '' })
   startLocationLabel: string;
 
+  /** Foto opcional tomada al iniciar la actividad (evidencia visual). */
+  @Column({ type: 'text', default: '' })
+  startPhotoUrl: string;
+
   @CreateDateColumn({ type: 'timestamptz' })
   startedAt: Date;
 
@@ -65,6 +69,10 @@ export class Activity {
 
   @Column({ default: '' })
   endLocationLabel: string;
+
+  /** Foto opcional tomada al terminar la actividad (evidencia del resultado). */
+  @Column({ type: 'text', default: '' })
+  endPhotoUrl: string;
 
   @Column({ type: 'int', default: 0 })
   durationMinutes: number;

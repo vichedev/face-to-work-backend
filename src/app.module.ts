@@ -15,6 +15,8 @@ import { WorkScheduleModule } from './schedule/work-schedule.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { ActivitiesModule } from './activities/activities.module';
 import { PerformanceModule } from './performance/performance.module';
+import { AuditModule } from './audit/audit.module';
+import { JustificationsModule } from './justifications/justifications.module';
 
 /**
  * Arregla diferencias de esquema que TypeORM no migra limpiamente:
@@ -52,6 +54,10 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
       ['activities', 'updatedAt'],
       ['work_schedule', 'createdAt'],
       ['work_schedule', 'updatedAt'],
+      ['audit_log', 'createdAt'],
+      ['justifications', 'createdAt'],
+      ['justifications', 'updatedAt'],
+      ['justifications', 'decidedAt'],
     ];
     for (const [table, column] of timestampTargets) {
       if (!(await qr.hasTable(table))) continue;
@@ -126,6 +132,8 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
     AttendanceModule,
     ActivitiesModule,
     PerformanceModule,
+    AuditModule,
+    JustificationsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

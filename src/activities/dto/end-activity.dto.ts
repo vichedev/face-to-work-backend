@@ -18,4 +18,8 @@ export class EndActivityDto {
 
   @IsOptional() @IsString() @MaxLength(160)
   locationLabel?: string;
+
+  /** Foto base64 opcional (data URL o sólo base64). Evidencia del resultado. */
+  @IsOptional() @IsString()
+  photoBase64?: string;
 }

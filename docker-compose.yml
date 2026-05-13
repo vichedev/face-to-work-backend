@@ -72,6 +72,38 @@ services:
       retries: 5
       start_period: 25s
 
+  backup:
+    image: postgres:16-alpine
+    container_name: ftw_backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-America/Guayaquil}
+      PGHOST: db
+      PGUSER: ${DB_USERNAME:-postgres}
+      PGPASSWORD: ${DB_PASSWORD:-postgres}
+      PGDATABASE: ${DB_NAME:-face_to_work}
+      # Cron schedule en formato estándar (m h d M w). Por defecto: 03:15 todos los días.
+      BACKUP_CRON: ${BACKUP_CRON:-15 3 * * *}
+      # Cuántos backups diarios conservar (los más antiguos se borran).
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-14}
+    volumes:
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+      - ftw_backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        apk add --no-cache dcron tzdata >/dev/null
+        chmod +x /usr/local/bin/backup.sh
+        echo "$$BACKUP_CRON /usr/local/bin/backup.sh" > /etc/crontabs/root
+        echo "[ftw_backup] cron programado: $$BACKUP_CRON (TZ=$$TZ, keep=$$BACKUP_KEEP_DAILY)"
+        # Hace un backup inmediato al arrancar (para validar permisos) y luego corre cron en foreground.
+        /usr/local/bin/backup.sh || echo "[ftw_backup] el backup inicial falló, revisar logs"
+        exec crond -f -L /dev/stdout
+
   caddy:
     image: caddy:2-alpine
     container_name: ftw_caddy
@@ -94,3 +126,4 @@ volumes:
   ftw_uploads:
   ftw_caddy_data:
   ftw_caddy_config:
+  ftw_backups:

@@ -3,12 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { Activity } from './activity.entity';
 import { User } from '../users/user.entity';
+import { UploadsService } from '../uploads/uploads.service';
 import { StartActivityDto } from './dto/start-activity.dto';
 import { EndActivityDto } from './dto/end-activity.dto';
 import { AdminUpdateActivityDto } from './dto/admin-update-activity.dto';
@@ -33,10 +35,23 @@ function dayEnd(s: string): Date {
 
 @Injectable()
 export class ActivitiesService {
+  private readonly log = new Logger('ActivitiesService');
+
   constructor(
     @InjectRepository(Activity) private readonly repo: Repository<Activity>,
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
+    private readonly uploads: UploadsService,
   ) {}
+
+  private saveOptionalPhoto(b64: string | undefined, prefix: string): string {
+    if (!b64) return '';
+    try {
+      return this.uploads.saveDataUrl(b64, prefix);
+    } catch (e: any) {
+      this.log.warn(`Foto-evidencia descartada (${prefix}): ${e?.message || e}`);
+      return '';
+    }
+  }
 
   // -- Trabajador --
 
@@ -45,6 +60,7 @@ export class ActivitiesService {
     if (!worker || worker.role !== 'worker') throw new ForbiddenException('Sólo los trabajadores pueden iniciar actividades');
     const open = await this.repo.findOne({ where: { workerId, status: 'in_progress' } });
     if (open) throw new ConflictException('Ya tienes una actividad en curso. Termínala antes de iniciar otra.');
+    const startPhotoUrl = this.saveOptionalPhoto(dto.photoBase64, 'act-start');
     const a = this.repo.create({
       workerId,
       title: dto.title.trim(),
@@ -53,6 +69,7 @@ export class ActivitiesService {
       startLongitude: dto.longitude ?? null,
       startAccuracy: dto.accuracy ?? null,
       startLocationLabel: (dto.locationLabel || '').trim(),
+      startPhotoUrl,
       status: 'in_progress',
     });
     return this.repo.save(a);
@@ -70,6 +87,7 @@ export class ActivitiesService {
     a.endLongitude = dto.longitude ?? null;
     a.endAccuracy = dto.accuracy ?? null;
     a.endLocationLabel = (dto.locationLabel || '').trim();
+    a.endPhotoUrl = this.saveOptionalPhoto(dto.photoBase64, 'act-end');
     a.status = 'completed';
     a.durationMinutes = Math.max(0, Math.round((now.getTime() - new Date(a.startedAt).getTime()) / 60000));
     return this.repo.save(a);

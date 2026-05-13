@@ -316,6 +316,11 @@ export class AttendanceService {
     };
   }
 
+  /** Devuelve un marcaje (con su worker) para uso del controlador (audit log, etc.). */
+  findOne(id: string) {
+    return this.repo.findOne({ where: { id }, relations: ['worker'] });
+  }
+
   /** Corrección de un marcaje por un administrador (re-evalúa la jornada con la config vigente). */
   async adminUpdate(id: string, dto: UpdateAttendanceDto) {
     const rec = await this.repo.findOne({ where: { id } });
