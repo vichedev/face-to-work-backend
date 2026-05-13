@@ -90,6 +90,20 @@ export class AttendanceController {
     return this.service.dashboard();
   }
 
+  @UseGuards(AdminGuard)
+  @Get('summary/analytics')
+  analytics(@Query('days') days?: string) {
+    const n = days ? Math.max(7, Math.min(parseInt(days, 10) || 30, 90)) : 30;
+    return this.service.analytics(n);
+  }
+
+  /** Devuelve todos los marcajes con coordenadas para un día (para mostrar en mapa). */
+  @UseGuards(AdminGuard)
+  @Get('summary/map')
+  mapPoints(@Query('day') day?: string) {
+    return this.service.mapPoints(day);
+  }
+
   // Sólo los administradores pueden corregir o eliminar un marcaje
   @UseGuards(AdminGuard)
   @Patch(':id')

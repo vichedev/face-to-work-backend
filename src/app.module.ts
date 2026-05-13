@@ -17,6 +17,7 @@ import { ActivitiesModule } from './activities/activities.module';
 import { PerformanceModule } from './performance/performance.module';
 import { AuditModule } from './audit/audit.module';
 import { JustificationsModule } from './justifications/justifications.module';
+import { PayrollModule } from './payroll/payroll.module';
 
 /**
  * Arregla diferencias de esquema que TypeORM no migra limpiamente:
@@ -134,6 +135,7 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
     PerformanceModule,
     AuditModule,
     JustificationsModule,
+    PayrollModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

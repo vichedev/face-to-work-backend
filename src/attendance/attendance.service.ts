@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { Attendance, AttendanceType, MatchStatus } from './attendance.entity';
+import { Activity } from '../activities/activity.entity';
 import { User } from '../users/user.entity';
 import { FaceService } from '../face/face.service';
 import { UploadsService } from '../uploads/uploads.service';
@@ -63,6 +64,7 @@ export class AttendanceService {
   constructor(
     @InjectRepository(Attendance) private readonly repo: Repository<Attendance>,
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
+    @InjectRepository(Activity) private readonly activitiesRepo: Repository<Activity>,
     private readonly faceService: FaceService,
     private readonly uploads: UploadsService,
     private readonly workSchedule: WorkScheduleService,
@@ -313,6 +315,210 @@ export class AttendanceService {
       overtimeMarksToday,
       overtimeMinutesToday,
       recent: todays.slice(0, 12),
+    };
+  }
+
+  /**
+   * Series y rankings agregados para el dashboard analítico. Devuelve:
+   *  - hoursPerDay: minutos efectivamente trabajados por día (últimos N días).
+   *  - marksPerDay: cuántos marcajes hubo cada día (todos los tipos).
+   *  - topWorkers: top N trabajadores por horas trabajadas en el mes.
+   *  - statusBreakdown: distribución de scheduleStatus en el mes.
+   */
+  async analytics(days = 30) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const from = new Date(today);
+    from.setDate(from.getDate() - (days - 1));
+    const toEnd = new Date(today);
+    toEnd.setHours(23, 59, 59, 999);
+
+    const marks = await this.repo.find({
+      where: { createdAt: Between(from, toEnd) },
+      relations: ['worker'],
+      order: { createdAt: 'ASC' },
+    });
+
+    // Agrupa por workerId + día → calcular minutos trabajados de cada día
+    const byWorkerDay = new Map<string, Map<string, Attendance[]>>();
+    const marksPerDay = new Map<string, number>();
+    for (const a of marks) {
+      const d = new Date(a.createdAt);
+      d.setHours(0, 0, 0, 0);
+      const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      marksPerDay.set(dayStr, (marksPerDay.get(dayStr) || 0) + 1);
+      if (!a.workerId) continue;
+      if (!byWorkerDay.has(a.workerId)) byWorkerDay.set(a.workerId, new Map());
+      const wMap = byWorkerDay.get(a.workerId)!;
+      if (!wMap.has(dayStr)) wMap.set(dayStr, []);
+      wMap.get(dayStr)!.push(a);
+    }
+
+    function workedMin(list: Attendance[]): number {
+      const sorted = [...list].sort((x, y) => new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime());
+      const firstIn = sorted.find((m) => m.type === 'in');
+      const lastOut = [...sorted].reverse().find((m) => m.type === 'out');
+      if (!firstIn || !lastOut) return 0;
+      let ms = new Date(lastOut.createdAt).getTime() - new Date(firstIn.createdAt).getTime();
+      const lOut = sorted.find((m) => m.type === 'lunch_out');
+      const lIn = sorted.find((m) => m.type === 'lunch_in');
+      if (lOut && lIn) {
+        ms -= Math.max(0, new Date(lIn.createdAt).getTime() - new Date(lOut.createdAt).getTime());
+      }
+      return Math.max(0, Math.round(ms / 60000));
+    }
+
+    // Acumular minutos por día (sumando todos los workers)
+    const minutesPerDay = new Map<string, number>();
+    for (const [, wMap] of byWorkerDay) {
+      for (const [day, list] of wMap) {
+        minutesPerDay.set(day, (minutesPerDay.get(day) || 0) + workedMin(list));
+      }
+    }
+
+    // Generar arr completo (incluso días con 0 marcajes)
+    const hoursPerDay: Array<{ day: string; hours: number; marks: number }> = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(from);
+      d.setDate(from.getDate() + i);
+      const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      hoursPerDay.push({
+        day: dayStr,
+        hours: Math.round(((minutesPerDay.get(dayStr) || 0) / 60) * 10) / 10,
+        marks: marksPerDay.get(dayStr) || 0,
+      });
+    }
+
+    // Top trabajadores del MES (mes calendario actual)
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const totalByWorker = new Map<string, { id: string; name: string; minutes: number; lateMinutes: number }>();
+    for (const [workerId, wMap] of byWorkerDay) {
+      let minutes = 0;
+      let lateMinutes = 0;
+      let name = '';
+      for (const [dayStr, list] of wMap) {
+        const dt = new Date(dayStr);
+        if (dt < monthStart) continue;
+        minutes += workedMin(list);
+        lateMinutes += list.filter((m) => m.scheduleStatus === 'late').reduce((s, m) => s + (m.scheduleMinutes || 0), 0);
+        if (!name && list[0]?.worker?.name) name = list[0].worker.name;
+      }
+      if (minutes > 0 || lateMinutes > 0) {
+        totalByWorker.set(workerId, { id: workerId, name: name || 'Trabajador', minutes, lateMinutes });
+      }
+    }
+    const topWorkers = [...totalByWorker.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 8);
+
+    // Distribución de status del mes
+    const statusCounts: Record<string, number> = {};
+    for (const a of marks) {
+      const dt = new Date(a.createdAt);
+      if (dt < monthStart) continue;
+      const k = a.scheduleStatus || 'normal';
+      statusCounts[k] = (statusCounts[k] || 0) + 1;
+    }
+    const statusBreakdown = Object.entries(statusCounts).map(([status, count]) => ({ status, count }));
+
+    return { days, from, to: toEnd, hoursPerDay, topWorkers, statusBreakdown };
+  }
+
+  /**
+   * Devuelve todos los marcajes geolocalizados (lat/lng != null) de un día,
+   * más la oficina (si está configurada). Usado por la página `/admin/map`.
+   */
+  async mapPoints(dayStr?: string) {
+    const parse = (s?: string): Date => {
+      if (s && /^\d{4}-\d{2}-\d{2}/.test(s)) {
+        const [y, m, d] = s.slice(0, 10).split('-').map(Number);
+        return new Date(y, m - 1, d);
+      }
+      return new Date();
+    };
+    const date = parse(dayStr);
+    const from = startOfDay(date);
+    const to = endOfDay(date);
+
+    const marks = await this.repo.find({
+      where: { createdAt: Between(from, to) },
+      relations: ['worker'],
+      order: { createdAt: 'ASC' },
+    });
+
+    const points = marks
+      .filter((m) => m.latitude != null && m.longitude != null)
+      .map((m) => ({
+        id: m.id,
+        kind: 'attendance' as const,
+        type: m.type,
+        lat: m.latitude,
+        lng: m.longitude,
+        accuracy: m.accuracy,
+        createdAt: m.createdAt,
+        worker: m.worker ? { id: m.worker.id, name: m.worker.name, code: m.worker.code, photoUrl: m.worker.photoUrl } : null,
+        scheduleStatus: m.scheduleStatus,
+        distanceFromOfficeMeters: m.distanceFromOfficeMeters,
+        insideOffice: m.insideOffice,
+        locationLabel: m.locationLabel,
+      }));
+
+    // Actividades: pueden tener startLat/Lng y/o endLat/Lng. Las agregamos como
+    // dos puntos distintos al mapa (uno por inicio, otro por fin) para verlas
+    // como recorrido.
+    const activities = await this.activitiesRepo.find({
+      where: { startedAt: Between(from, to) },
+      relations: ['worker'],
+    });
+    for (const a of activities) {
+      const pubWorker = a.worker ? { id: a.worker.id, name: a.worker.name, code: a.worker.code, photoUrl: a.worker.photoUrl } : null;
+      if (a.startLatitude != null && a.startLongitude != null) {
+        points.push({
+          id: `${a.id}-start`,
+          kind: 'activity_start' as any,
+          type: a.status,
+          lat: a.startLatitude,
+          lng: a.startLongitude,
+          accuracy: a.startAccuracy,
+          createdAt: a.startedAt,
+          worker: pubWorker,
+          scheduleStatus: '',
+          distanceFromOfficeMeters: null,
+          insideOffice: false,
+          locationLabel: a.title,
+        } as any);
+      }
+      if (a.endLatitude != null && a.endLongitude != null && a.endedAt) {
+        points.push({
+          id: `${a.id}-end`,
+          kind: 'activity_end' as any,
+          type: a.status,
+          lat: a.endLatitude,
+          lng: a.endLongitude,
+          accuracy: a.endAccuracy,
+          createdAt: a.endedAt,
+          worker: pubWorker,
+          scheduleStatus: '',
+          distanceFromOfficeMeters: null,
+          insideOffice: false,
+          locationLabel: a.title,
+        } as any);
+      }
+    }
+
+    const schedule = await this.workSchedule.get();
+    const office = schedule.officeLatitude != null && schedule.officeLongitude != null
+      ? {
+          name: schedule.officeName || 'Oficina',
+          lat: schedule.officeLatitude,
+          lng: schedule.officeLongitude,
+          radiusMeters: schedule.officeRadiusMeters || 100,
+          geofenceEnabled: !!schedule.geofenceEnabled,
+        }
+      : null;
+
+    return {
+      day: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+      office,
+      points,
     };
   }
 
