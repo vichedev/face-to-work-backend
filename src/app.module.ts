@@ -25,6 +25,7 @@ import { RemindersModule } from './reminders/reminders.module';
 import { BrandingModule } from './branding/branding.module';
 import { AdminsModule } from './admins/admins.module';
 import { SummaryModule } from './summary/summary.module';
+import { EomModule } from './eom/eom.module';
 
 /**
  * Arregla diferencias de esquema que TypeORM no migra limpiamente:
@@ -76,6 +77,10 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
       ['reminder_sent', 'createdAt'],
       ['app_branding', 'createdAt'],
       ['app_branding', 'updatedAt'],
+      ['eom_awards', 'createdAt'],
+      ['eom_awards', 'updatedAt'],
+      ['eom_rewards', 'createdAt'],
+      ['eom_rewards', 'updatedAt'],
     ];
     for (const [table, column] of timestampTargets) {
       if (!(await qr.hasTable(table))) continue;
@@ -160,6 +165,7 @@ async function preSyncFixups(ds: DataSource): Promise<void> {
     BrandingModule,
     AdminsModule,
     SummaryModule,
+    EomModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

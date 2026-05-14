@@ -15,5 +15,6 @@ import { PayrollController } from './payroll.controller';
   ],
   providers: [PayrollService],
   controllers: [PayrollController],
+  exports: [PayrollService],
 })
 export class PayrollModule {}
