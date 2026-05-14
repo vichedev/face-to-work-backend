@@ -2,8 +2,10 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/icon-512.svg" />
+    <!-- Favicon dinámico: el backend devuelve el logo del branding si lo hay, o el default.
+         La primera petición HTML ya trae el icono correcto: sin "flash" del icono por defecto. -->
+    <link rel="icon" href="/api/branding/favicon" />
+    <link rel="apple-touch-icon" href="/api/branding/favicon" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)" />
@@ -13,7 +15,7 @@
     <meta name="apple-mobile-web-app-title" content="Face2Work" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>Face to Work · Control de asistencia con reconocimiento facial</title>
-    <script type="module" crossorigin src="/assets/index-BZlYMMxj.js"></script>
+    <script type="module" crossorigin src="/assets/index-B5lNob3A.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-S-ySWqyJ.js">
     <link rel="modulepreload" crossorigin href="/assets/icons-BkAaQGra.js">
     <link rel="modulepreload" crossorigin href="/assets/react-vendor-DH3BSNrq.js">

@@ -61,4 +61,30 @@ export class UploadsService {
       return null;
     }
   }
+
+  /**
+   * Lee una imagen guardada como Buffer + content-type (más eficiente que data URL
+   * cuando se va a servir directamente como respuesta HTTP, ej. favicon).
+   */
+  readBuffer(urlOrFilename: string | null | undefined): { buf: Buffer; mime: string } | null {
+    if (!urlOrFilename) return null;
+    const filename = path.basename(urlOrFilename.split('?')[0].split('#')[0]);
+    if (!filename || filename.includes('..')) return null;
+    const full = path.join(this.dir, filename);
+    try {
+      if (!fs.existsSync(full)) return null;
+      const buf = fs.readFileSync(full);
+      if (!buf.length) return null;
+      const ext = path.extname(filename).toLowerCase().replace('.', '') || 'jpeg';
+      const mime =
+        ext === 'svg' ? 'image/svg+xml'
+        : ext === 'png' ? 'image/png'
+        : ext === 'webp' ? 'image/webp'
+        : ext === 'gif' ? 'image/gif'
+        : 'image/jpeg';
+      return { buf, mime };
+    } catch {
+      return null;
+    }
+  }
 }
