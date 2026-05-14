@@ -88,6 +88,7 @@ export class WorkersService {
     if (dto.department !== undefined) patch.department = dto.department;
     if (dto.phone !== undefined) patch.phone = dto.phone;
     if (dto.active !== undefined) patch.active = dto.active;
+    if (dto.internalNotes !== undefined) patch.internalNotes = dto.internalNotes;
     if (dto.photoBase64) {
       const r = await this.processPhoto(dto.photoBase64);
       patch.photoUrl = r.photoUrl;

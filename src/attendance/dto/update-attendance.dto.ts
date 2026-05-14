@@ -1,4 +1,4 @@
-import { IsIn, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsISO8601, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /** Corrección de un marcaje por parte de un administrador. */
 export class UpdateAttendanceDto {
@@ -14,4 +14,11 @@ export class UpdateAttendanceDto {
   @IsString()
   @MaxLength(200)
   locationLabel?: string;
+
+  /** Motivo de la corrección. Si llega, se incluye en el audit log. */
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  reason?: string;
 }

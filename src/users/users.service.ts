@@ -35,6 +35,7 @@ interface UpdateUserData {
   photoUrl?: string;
   faceDescriptor?: Record<string, any> | null;
   active?: boolean;
+  internalNotes?: string;
 }
 
 @Injectable()
@@ -154,6 +155,7 @@ export class UsersService {
     if (data.photoUrl !== undefined) user.photoUrl = data.photoUrl;
     if (data.faceDescriptor !== undefined) user.faceDescriptor = data.faceDescriptor;
     if (data.active !== undefined) user.active = data.active;
+    if (data.internalNotes !== undefined) user.internalNotes = (data.internalNotes || '').slice(0, 4000);
     return this.usersRepo.save(user);
   }
 

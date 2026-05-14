@@ -10,6 +10,7 @@ import { WorkersController } from './workers.controller';
 import { WorkersExportService } from './workers-export.service';
 import { FaceModule } from '../face/face.module';
 import { UploadsModule } from '../uploads/uploads.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UploadsModule } from '../uploads/uploads.module';
     UsersModule,
     FaceModule,
     UploadsModule,
+    AuditModule,
   ],
   providers: [WorkersService, WorkersExportService],
   controllers: [WorkersController],

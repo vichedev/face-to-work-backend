@@ -63,6 +63,14 @@ export class User {
   @Column({ default: true })
   active: boolean;
 
+  /**
+   * Notas internas del staff sobre el trabajador (alergias, contacto de emergencia,
+   * observaciones administrativas, etc.). Sólo visibles para admin/supervisor — el
+   * trabajador nunca ve este campo. Limite suave aplicado en el DTO (4000 chars).
+   */
+  @Column({ type: 'text', default: '' })
+  internalNotes: string;
+
   // --- 2FA (TOTP, compatible con Google/Microsoft Authenticator) ---
   /** Secreto base32 generado al activar 2FA. `select: false`: no se devuelve nunca, salvo consulta explícita. */
   @Column({ type: 'varchar', length: 64, default: '', select: false })

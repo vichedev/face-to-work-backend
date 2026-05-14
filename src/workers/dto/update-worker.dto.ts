@@ -42,4 +42,8 @@ export class UpdateWorkerDto {
 
   @IsOptional() @IsBoolean()
   active?: boolean;
+
+  /** Notas internas (sólo visibles para staff). */
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(4000)
+  internalNotes?: string;
 }

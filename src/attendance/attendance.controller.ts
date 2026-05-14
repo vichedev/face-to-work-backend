@@ -18,6 +18,7 @@ import { AttendanceService } from './attendance.service';
 import { AuditService, auditCtx } from '../audit/audit.service';
 import { MarkDto } from './dto/mark.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
+import { CreateManualAttendanceDto } from './dto/create-manual-attendance.dto';
 
 function snapshotAttendance(a: any) {
   if (!a) return null;
@@ -105,19 +106,39 @@ export class AttendanceController {
     return this.service.mapPoints(day);
   }
 
+  /**
+   * Creación manual de un marcaje por staff. Útil cuando la cámara falló, el
+   * trabajador olvidó marcar o vino sin teléfono. El motivo queda en audit.
+   */
+  @UseGuards(StaffGuard)
+  @Post()
+  async createManual(@Req() req: any, @Body() dto: CreateManualAttendanceDto) {
+    const created = await this.service.adminCreate(dto);
+    await this.audit.record(auditCtx(req), {
+      entity: 'attendance',
+      entityId: created?.id || '',
+      action: 'create',
+      summary: `Creó marcaje manual ${created?.type || ''} de ${created?.worker?.name || 'trabajador'} — ${dto.reason}`,
+      before: null,
+      after: { ...snapshotAttendance(created), reason: dto.reason },
+    });
+    return created;
+  }
+
   // Supervisores pueden CORREGIR marcajes; sólo el admin puede ELIMINAR.
   @UseGuards(StaffGuard)
   @Patch(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateAttendanceDto) {
     const before = await this.service.findOne(id);
     const updated = await this.service.adminUpdate(id, dto);
+    const reasonSuffix = dto.reason ? ` — Motivo: ${dto.reason}` : '';
     await this.audit.record(auditCtx(req), {
       entity: 'attendance',
       entityId: id,
       action: 'update',
-      summary: `Corrigió marcaje ${updated?.type || ''} de ${updated?.worker?.name || 'trabajador'}`,
+      summary: `Corrigió marcaje ${updated?.type || ''} de ${updated?.worker?.name || 'trabajador'}${reasonSuffix}`,
       before: snapshotAttendance(before),
-      after: snapshotAttendance(updated),
+      after: { ...snapshotAttendance(updated), reason: dto.reason || undefined },
     });
     return updated;
   }

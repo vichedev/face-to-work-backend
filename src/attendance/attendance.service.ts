@@ -17,6 +17,7 @@ import { WorkScheduleService } from '../schedule/work-schedule.service';
 import { PushService } from '../push/push.service';
 import { MarkDto } from './dto/mark.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
+import { CreateManualAttendanceDto } from './dto/create-manual-attendance.dto';
 
 /** Secuencia esperada de marcajes en un día. lunch puede saltarse. */
 const SEQUENCE: AttendanceType[] = ['in', 'lunch_out', 'lunch_in', 'out'];
@@ -597,7 +598,9 @@ export class AttendanceService {
   async adminUpdate(id: string, dto: UpdateAttendanceDto) {
     const rec = await this.repo.findOne({ where: { id } });
     if (!rec) throw new NotFoundException('Marcaje no encontrado');
-    if (dto.type === 'in' || dto.type === 'out') rec.type = dto.type;
+    if (dto.type === 'in' || dto.type === 'out' || dto.type === 'lunch_in' || dto.type === 'lunch_out') {
+      rec.type = dto.type;
+    }
     if (dto.locationLabel !== undefined) rec.locationLabel = dto.locationLabel.trim().slice(0, 200);
     if (dto.createdAt) {
       const d = new Date(dto.createdAt);
@@ -628,6 +631,63 @@ export class AttendanceService {
     if (!rec) throw new NotFoundException('Marcaje no encontrado');
     await this.repo.remove(rec);
     return { ok: true };
+  }
+
+  /**
+   * Crea manualmente un marcaje en nombre de un trabajador (caso típico: se cayó
+   * la cámara, el trabajador olvidó marcar, o vino sin teléfono). No pasa por
+   * reconocimiento facial — queda registrado como `matchStatus = 'manual'`, sin
+   * liveness, y con el motivo en `scheduleNote` (también en el audit log).
+   */
+  async adminCreate(dto: CreateManualAttendanceDto) {
+    const worker = await this.usersRepo.findOne({ where: { id: dto.workerId } });
+    if (!worker || worker.role !== 'worker') {
+      throw new NotFoundException('Trabajador no encontrado');
+    }
+
+    const at = dto.createdAt ? new Date(dto.createdAt) : new Date();
+    if (isNaN(at.getTime())) throw new BadRequestException('Fecha inválida');
+
+    // Re-evaluar la jornada laboral con la config vigente al momento del marcaje.
+    const dayMarks = await this.repo.find({
+      where: { workerId: worker.id, createdAt: Between(startOfDay(at), endOfDay(at)) },
+      order: { createdAt: 'ASC' },
+    });
+    const isFirstInOfDay =
+      dto.type === 'in' &&
+      !dayMarks.some((m) => m.type === 'in' && new Date(m.createdAt) <= at);
+    const schedule = await this.workSchedule.get();
+    const ev = this.workSchedule.evaluate({ type: dto.type, at, schedule, isFirstInOfDay });
+
+    const reason = (dto.reason || '').trim().slice(0, 500);
+    // Combinar el motivo con la nota de evaluación de jornada.
+    const scheduleNote = [`Manual: ${reason}`, ev.note].filter(Boolean).join(' · ').slice(0, 300);
+
+    const record = this.repo.create({
+      workerId: worker.id,
+      type: dto.type,
+      photoUrl: '',
+      matchStatus: 'manual' as MatchStatus,
+      recognizedName: worker.name,
+      confidence: 100,
+      aiReasoning: `Marcaje creado manualmente por staff. Motivo: ${reason}`.slice(0, 1000),
+      greeting: '',
+      scheduleStatus: ev.status,
+      scheduleMinutes: ev.minutes,
+      scheduleNote,
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      distanceFromOfficeMeters: null,
+      insideOffice: false,
+      locationLabel: (dto.locationLabel || '').trim().slice(0, 200),
+      deviceInfo: 'manual-admin',
+      livenessScore: null,
+      livenessVerified: false,
+      createdAt: at,
+    });
+    const saved = await this.repo.save(record);
+    return this.repo.findOne({ where: { id: saved.id }, relations: ['worker'] });
   }
 
   // ---- helpers ----

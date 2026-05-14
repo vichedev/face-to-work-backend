@@ -207,6 +207,124 @@ export class RemindersService {
     }
   }
 
+  // ────────────────────────────────────────────────────────
+  //  Auto-cierre de día abierto
+  // ────────────────────────────────────────────────────────
+
+  /** Cuántas horas después del fin de turno se cierra automáticamente un día abierto. */
+  private readonly AUTO_CLOSE_GRACE_HOURS = 4;
+
+  /**
+   * Cada hora: para cada trabajador con marcaje `in` pero sin `out` cuyo turno
+   * terminó hace más de AUTO_CLOSE_GRACE_HOURS, crea un `out` sintético al final
+   * del turno (no a la hora actual — así las horas trabajadas no se inflan).
+   * Notifica al trabajador y al admin. Idempotente vía reminder_sent.
+   * Revisa hoy y ayer (por si el cron se perdió alguna ejecución).
+   */
+  @Cron('0 * * * *', { name: 'attendance-auto-close' })
+  async runAutoClose() {
+    try {
+      const schedule = await this.schedule.get();
+      if (!schedule?.enabled) return;
+
+      const now = new Date();
+      // Revisar ayer + hoy: el cron podría no haber corrido a tiempo.
+      const todayD = new Date(now); todayD.setHours(0, 0, 0, 0);
+      const yesterdayD = new Date(todayD); yesterdayD.setDate(yesterdayD.getDate() - 1);
+
+      for (const dayDate of [yesterdayD, todayD]) {
+        await this.autoCloseForDay(dayDate, now, schedule);
+      }
+    } catch (e: any) {
+      this.log.warn(`runAutoClose falló: ${e?.message || e}`);
+    }
+  }
+
+  private async autoCloseForDay(dayDate: Date, now: Date, schedule: any) {
+    const dayKey = dayStr(dayDate);
+    const dayCfg = (schedule.days || {})[String(dayDate.getDay())];
+    if (!dayCfg?.enabled) return;
+    if ((schedule.holidays || []).some((h: any) => h.date === dayKey)) return;
+
+    const [endH, endM] = String(dayCfg.end || '00:00').split(':').map(Number);
+    const shiftEnd = new Date(dayDate); shiftEnd.setHours(endH || 0, endM || 0, 0, 0);
+    const cutoff = new Date(shiftEnd);
+    cutoff.setHours(cutoff.getHours() + this.AUTO_CLOSE_GRACE_HOURS);
+    if (now < cutoff) return; // todavía dentro del periodo de gracia
+
+    const dayStartT = new Date(dayDate);
+    const dayEndT = new Date(dayDate); dayEndT.setHours(23, 59, 59, 999);
+    const marks = await this.attRepo.find({
+      where: { createdAt: Between(dayStartT, dayEndT) },
+      relations: ['worker'],
+      order: { createdAt: 'ASC' },
+    });
+
+    const byWorker = new Map<string, typeof marks>();
+    for (const m of marks) {
+      if (!m.workerId) continue;
+      if (!byWorker.has(m.workerId)) byWorker.set(m.workerId, []);
+      byWorker.get(m.workerId)!.push(m);
+    }
+
+    const workers = await this.usersRepo.find({ where: { role: 'worker', active: true } });
+    for (const w of workers) {
+      const list = byWorker.get(w.id) || [];
+      const hasIn = list.some((m) => m.type === 'in');
+      const hasOut = list.some((m) => m.type === 'out');
+      if (!hasIn || hasOut) continue;
+      if (await this.alreadySent(w.id, 'auto_close', dayKey)) continue;
+
+      // Crear el `out` sintético a la hora de fin del turno (no a la hora actual).
+      try {
+        await this.attRepo.insert({
+          workerId: w.id,
+          type: 'out',
+          photoUrl: '',
+          matchStatus: 'manual',
+          recognizedName: w.name,
+          confidence: 0,
+          aiReasoning: 'Cierre automático: el trabajador no marcó salida y pasaron más de 4 h desde el fin del turno.',
+          greeting: '',
+          scheduleStatus: '',
+          scheduleMinutes: 0,
+          scheduleNote: `Auto-cierre (turno terminó ${dayCfg.end})`,
+          latitude: null,
+          longitude: null,
+          accuracy: null,
+          distanceFromOfficeMeters: null,
+          insideOffice: false,
+          locationLabel: '',
+          deviceInfo: 'system-auto-close',
+          livenessScore: null,
+          livenessVerified: false,
+          createdAt: shiftEnd,
+        });
+      } catch (e: any) {
+        this.log.warn(`Auto-cierre falló para ${w.email}: ${e?.message || e}`);
+        continue;
+      }
+      await this.markSent(w.id, 'auto_close', dayKey);
+
+      // Notificar al trabajador (recordatorio para próxima vez) + a admins.
+      const dateLabel = dayDate.toLocaleDateString('es-EC', { day: '2-digit', month: 'short' });
+      await this.push.notifyUser(w.id, {
+        title: 'Día cerrado automáticamente',
+        body: `No marcaste tu salida el ${dateLabel}. Tu día se cerró a la hora del fin de turno (${dayCfg.end}). Si trabajaste más tiempo, pídele al admin que corrija el marcaje.`,
+        url: '/me',
+        tag: `auto-close-${dayKey}`,
+      });
+      await this.push.notifyAdmins({
+        title: 'Día cerrado automáticamente',
+        body: `${w.name} no marcó salida el ${dateLabel}. Se cerró a las ${dayCfg.end}.`,
+        url: '/admin/attendance',
+        tag: `auto-close-admin-${w.id}-${dayKey}`,
+        icon: w.photoUrl || undefined,
+      });
+      this.log.log(`Auto-cierre ${w.email} ${dayKey}`);
+    }
+  }
+
   /** Limpia entradas viejas (> 60 días) para que la tabla no crezca infinitamente. */
   @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'reminder-cleanup' })
   async cleanup() {
