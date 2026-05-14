@@ -10,7 +10,11 @@ import {
 export interface DaySchedule {
   enabled: boolean;
   start: string; // "HH:mm"
-  end: string; // "HH:mm"
+  end: string;   // "HH:mm"
+  /** Hora de inicio del receso de almuerzo. Vacío = sin almuerzo programado ese día. */
+  lunchStart?: string; // "HH:mm" o ''
+  /** Hora prevista de vuelta del almuerzo. Vacío = sin almuerzo programado ese día. */
+  lunchEnd?: string;   // "HH:mm" o ''
 }
 
 export interface Holiday {

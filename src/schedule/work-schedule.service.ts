@@ -48,7 +48,9 @@ function fmtDur(min: number): string {
   return r ? `${h} h ${r} min` : `${h} h`;
 }
 function defaultDays(): Record<string, DaySchedule> {
-  const day = (enabled: boolean, start = '08:00', end = '17:00'): DaySchedule => ({ enabled, start, end });
+  // Por defecto: laborables L-V con receso de 13:00 a 14:00, sábado/domingo descanso.
+  const day = (enabled: boolean, start = '08:00', end = '17:00', lunchStart = '13:00', lunchEnd = '14:00'): DaySchedule =>
+    ({ enabled, start, end, lunchStart, lunchEnd });
   return {
     '0': day(false), // domingo
     '1': day(true), // lunes
@@ -56,7 +58,7 @@ function defaultDays(): Record<string, DaySchedule> {
     '3': day(true),
     '4': day(true),
     '5': day(true), // viernes
-    '6': day(false, '08:00', '13:00'), // sábado
+    '6': day(false, '08:00', '13:00', '', ''), // sábado (medio turno sin almuerzo formal)
   };
 }
 function sanitizeDays(input: any, current: Record<string, DaySchedule>): Record<string, DaySchedule> {
@@ -66,11 +68,26 @@ function sanitizeDays(input: any, current: Record<string, DaySchedule>): Record<
       const k = String(i);
       const v = input[k];
       if (v && typeof v === 'object') {
+        // El almuerzo es opcional: aceptamos string vacío explícito para limpiarlo,
+        // o un HH:mm válido. Si el cliente no lo mandó (undefined), conservamos el actual.
+        const cleanLunch = (raw: any, fallback: string | undefined): string => {
+          if (raw === '' || raw === null) return '';
+          if (typeof raw === 'string' && HHMM.test(raw)) return raw;
+          return fallback ?? '';
+        };
         out[k] = {
           enabled: v.enabled === true || v.enabled === 'true',
           start: HHMM.test(v.start) ? v.start : out[k]?.start || '08:00',
           end: HHMM.test(v.end) ? v.end : out[k]?.end || '17:00',
+          lunchStart: cleanLunch(v.lunchStart, out[k]?.lunchStart),
+          lunchEnd: cleanLunch(v.lunchEnd, out[k]?.lunchEnd),
         };
+        // Si sólo uno de los dos extremos del almuerzo está presente, descartamos ambos:
+        // un receso sin inicio o sin fin no tiene sentido.
+        if (!out[k].lunchStart || !out[k].lunchEnd) {
+          out[k].lunchStart = '';
+          out[k].lunchEnd = '';
+        }
       }
     }
   }

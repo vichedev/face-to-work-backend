@@ -17,9 +17,9 @@ export class UpdateScheduleDto {
   @IsOptional() @IsBoolean()
   enabled?: boolean;
 
-  /** { "0": { enabled, start: "HH:mm", end: "HH:mm" }, ... "6": {...} } — el servicio lo sanea. */
+  /** { "0": { enabled, start: "HH:mm", end: "HH:mm", lunchStart?, lunchEnd? }, ... "6": {...} } — el servicio lo sanea. */
   @IsOptional() @IsObject()
-  days?: Record<string, { enabled?: boolean; start?: string; end?: string }>;
+  days?: Record<string, { enabled?: boolean; start?: string; end?: string; lunchStart?: string; lunchEnd?: string }>;
 
   @IsOptional() @IsInt() @Min(0) @Max(1440)
   lateAfterMinutes?: number;
