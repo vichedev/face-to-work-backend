@@ -327,6 +327,7 @@ export class AttendanceService {
     if (opts.status === 'unidentified') qb.andWhere('a.workerId IS NULL');
     if (opts.status === 'late') qb.andWhere("a.scheduleStatus IN ('late','absent_threshold')");
     if (opts.status === 'overtime') qb.andWhere("a.scheduleStatus = 'overtime'");
+    if (opts.status === 'lunch_late') qb.andWhere("a.scheduleStatus = 'lunch_late'");
     qb.limit(Math.min(opts.limit || 300, 2000));
     return qb.getMany();
   }

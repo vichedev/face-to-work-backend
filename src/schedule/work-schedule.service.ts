@@ -16,6 +16,7 @@ export type ScheduleStatus =
   | 'absent_threshold' // tan tarde que supera el límite -> cuenta como inasistencia
   | 'overtime' // hora extra
   | 'early_leave' // salida anticipada
+  | 'lunch_late' // volvió tarde del almuerzo
   | 'rest_day' // marcó en un día de descanso
   | 'holiday'; // marcó en un día festivo
 
@@ -134,6 +135,8 @@ export class WorkScheduleService {
       overtimeAfterMinutes: 0,
       earlyLeaveEnabled: false,
       earlyLeaveBeforeMinutes: 5,
+      lunchLateEnabled: false,
+      lunchLateAfterMinutes: 10,
       holidays: [],
     });
     return this.repo.save(created);
@@ -150,6 +153,8 @@ export class WorkScheduleService {
     if (dto.overtimeAfterMinutes !== undefined) s.overtimeAfterMinutes = clampMin(dto.overtimeAfterMinutes, s.overtimeAfterMinutes);
     if (dto.earlyLeaveEnabled !== undefined) s.earlyLeaveEnabled = !!dto.earlyLeaveEnabled;
     if (dto.earlyLeaveBeforeMinutes !== undefined) s.earlyLeaveBeforeMinutes = clampMin(dto.earlyLeaveBeforeMinutes, s.earlyLeaveBeforeMinutes);
+    if (dto.lunchLateEnabled !== undefined) s.lunchLateEnabled = !!dto.lunchLateEnabled;
+    if (dto.lunchLateAfterMinutes !== undefined) s.lunchLateAfterMinutes = clampMin(dto.lunchLateAfterMinutes, s.lunchLateAfterMinutes);
     if (dto.holidays !== undefined) s.holidays = sanitizeHolidays(dto.holidays);
     // Oficina
     if (dto.officeName !== undefined) s.officeName = String(dto.officeName).slice(0, 120).trim();
@@ -202,8 +207,30 @@ export class WorkScheduleService {
     const day = days[String(at.getDay())];
     if (!day || !day.enabled) return { status: 'rest_day', minutes: 0, note: 'Marcaje en día de descanso' };
 
-    // Los marcajes de almuerzo no se evalúan contra la jornada (sólo entrada y salida)
-    if (type === 'lunch_out' || type === 'lunch_in') return { status: 'normal', minutes: 0, note: '' };
+    // El marcaje de salida a almuerzo no se evalúa (no penaliza ir a almorzar).
+    if (type === 'lunch_out') return { status: 'normal', minutes: 0, note: '' };
+
+    // Vuelta del almuerzo: si está habilitado Y el día tiene un lunchEnd definido,
+    // comparamos contra la hora prevista de regreso aplicando la tolerancia.
+    if (type === 'lunch_in') {
+      if (!schedule.lunchLateEnabled || !day.lunchEnd || !HHMM.test(day.lunchEnd)) {
+        return { status: 'normal', minutes: 0, note: '' };
+      }
+      const expectedReturn = parseTimeOnDate(at, day.lunchEnd);
+      const lateMin = Math.round((at.getTime() - expectedReturn.getTime()) / 60000);
+      const tolerance = Math.max(0, schedule.lunchLateAfterMinutes || 0);
+      if (lateMin > tolerance) {
+        return {
+          status: 'lunch_late',
+          minutes: lateMin,
+          note: `Volvió ${fmtDur(lateMin)} tarde del almuerzo (esperado ${day.lunchEnd})`,
+        };
+      }
+      if (lateMin < -1) {
+        return { status: 'on_time', minutes: 0, note: `Volvió ${fmtDur(-lateMin)} antes` };
+      }
+      return { status: 'on_time', minutes: 0, note: 'Vuelta puntual del almuerzo' };
+    }
 
     if (type === 'in') {
       if (!isFirstInOfDay) return { status: 'normal', minutes: 0, note: 'Reingreso' };

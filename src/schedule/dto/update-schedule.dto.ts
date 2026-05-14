@@ -39,6 +39,12 @@ export class UpdateScheduleDto {
   @IsOptional() @IsInt() @Min(0) @Max(1440)
   earlyLeaveBeforeMinutes?: number;
 
+  @IsOptional() @IsBoolean()
+  lunchLateEnabled?: boolean;
+
+  @IsOptional() @IsInt() @Min(0) @Max(1440)
+  lunchLateAfterMinutes?: number;
+
   /** [{ date: "YYYY-MM-DD", name: "..." }, ...] — el servicio lo sanea. */
   @IsOptional() @IsArray()
   holidays?: Array<{ date?: string; name?: string }>;

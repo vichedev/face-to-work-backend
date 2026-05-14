@@ -66,6 +66,14 @@ export class WorkSchedule {
   @Column({ type: 'int', default: 5 })
   earlyLeaveBeforeMinutes: number;
 
+  /** Si se contabiliza el retorno tardío del almuerzo. Requiere que el día tenga `lunchEnd` definido. */
+  @Column({ default: false })
+  lunchLateEnabled: boolean;
+
+  /** Minutos tras la hora de vuelta del almuerzo a partir de los cuales cuenta como tardanza de almuerzo. */
+  @Column({ type: 'int', default: 10 })
+  lunchLateAfterMinutes: number;
+
   /** Días festivos / no laborables (además de los días de descanso semanales). */
   @Column({ type: 'jsonb', nullable: true })
   holidays: Holiday[] | null;

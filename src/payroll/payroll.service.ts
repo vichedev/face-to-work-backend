@@ -26,7 +26,7 @@ export interface DailyRow {
   date: string;        // YYYY-MM-DD
   weekday: string;     // 'Lun', 'Mar', …
   isWorkDay: boolean;
-  shift: { start: string; end: string } | null;
+  shift: { start: string; end: string; lunchStart?: string; lunchEnd?: string } | null;
   firstIn: string | null;     // 'HH:mm'
   lunchOut: string | null;
   lunchIn: string | null;
@@ -35,6 +35,8 @@ export interface DailyRow {
   lateMinutes: number;
   overtimeMinutes: number;
   earlyLeaveMinutes: number;
+  /** Minutos de retraso al volver del almuerzo (sólo si lunchLateEnabled y el día tiene lunchEnd). */
+  lunchLateMinutes: number;
   status: 'present' | 'late' | 'absent' | 'justified' | 'rest' | 'holiday' | 'partial';
   justification?: { type: string; reason: string } | null;
   activitiesCount: number;
@@ -43,7 +45,7 @@ export interface DailyRow {
 export interface MonthlyPayroll {
   worker: { id: string; name: string; code: string | null; position: string; department: string; email: string; photoUrl: string };
   month: { year: number; month: number; label: string };
-  schedule: { enabled: boolean; lateAfterMinutes: number };
+  schedule: { enabled: boolean; lateAfterMinutes: number; lunchLateEnabled: boolean; lunchLateAfterMinutes: number };
   totals: {
     workDays: number;          // días laborables del mes (según jornada)
     workedDays: number;        // días con entrada y salida registradas
@@ -53,6 +55,10 @@ export interface MonthlyPayroll {
     lateMinutes: number;
     earlyLeaveDays: number;
     earlyLeaveMinutes: number;
+    /** Días en que el trabajador volvió tarde del almuerzo (excediendo la tolerancia). */
+    lunchLateDays: number;
+    /** Suma total de minutos de retraso en vueltas de almuerzo del mes. */
+    lunchLateMinutes: number;
     absentDays: number;        // ausencias no justificadas
     justifiedDays: number;     // días cubiertos por una justificación aprobada
     restDays: number;
@@ -88,6 +94,8 @@ export class PayrollService {
       overtimeHours: number;
       lateDays: number;
       lateMinutes: number;
+      lunchLateDays: number;
+      lunchLateMinutes: number;
       absentDays: number;
       justifiedDays: number;
       workedDays: number;
@@ -105,6 +113,8 @@ export class PayrollService {
         overtimeHours: Math.round((payroll.totals.overtimeMinutes / 60) * 10) / 10,
         lateDays: payroll.totals.lateDays,
         lateMinutes: payroll.totals.lateMinutes,
+        lunchLateDays: payroll.totals.lunchLateDays,
+        lunchLateMinutes: payroll.totals.lunchLateMinutes,
         absentDays: payroll.totals.absentDays,
         justifiedDays: payroll.totals.justifiedDays,
         workedDays: payroll.totals.workedDays,
@@ -154,6 +164,7 @@ export class PayrollService {
     const totals: MonthlyPayroll['totals'] = {
       workDays: 0, workedDays: 0, workedMinutes: 0, overtimeMinutes: 0,
       lateDays: 0, lateMinutes: 0, earlyLeaveDays: 0, earlyLeaveMinutes: 0,
+      lunchLateDays: 0, lunchLateMinutes: 0,
       absentDays: 0, justifiedDays: 0, restDays: 0, holidayDays: 0,
       activitiesCount: 0, activitiesMinutes: 0,
     };
@@ -180,7 +191,14 @@ export class PayrollService {
       // Tipo de día
       let isWorkDay = !!schedule.enabled && day?.enabled === true && !holiday;
       let shift: DailyRow['shift'] = null;
-      if (isWorkDay && day) shift = { start: day.start || '00:00', end: day.end || '00:00' };
+      if (isWorkDay && day) {
+        shift = {
+          start: day.start || '00:00',
+          end: day.end || '00:00',
+          lunchStart: day.lunchStart || '',
+          lunchEnd: day.lunchEnd || '',
+        };
+      }
 
       const dayMarks = marksByDay.get(ds) || [];
       const firstIn = dayMarks.find((m) => m.type === 'in');
@@ -233,6 +251,19 @@ export class PayrollService {
         }
       }
 
+      // Vuelta tardía del almuerzo: sólo si la jornada está habilitada, el feature
+      // de lunch_late está activo Y el día tiene `lunchEnd` configurado.
+      let lunchLateMin = 0;
+      if (isWorkDay && schedule.lunchLateEnabled && lunchIn && shift?.lunchEnd) {
+        const lEnd = parseHHmm(shift.lunchEnd);
+        if (lEnd) {
+          const expected = new Date(date); expected.setHours(lEnd.h, lEnd.m, 0, 0);
+          const actual = new Date(lunchIn.createdAt);
+          const diff = Math.round((actual.getTime() - expected.getTime()) / 60000);
+          if (diff > (schedule.lunchLateAfterMinutes || 0)) lunchLateMin = diff;
+        }
+      }
+
       // Determinar status
       const just = findJust(ds);
       let status: DailyRow['status'] = 'rest';
@@ -262,6 +293,7 @@ export class PayrollService {
           totals.overtimeMinutes += overtimeMin;
           if (lateMin > 0) { totals.lateDays += 1; totals.lateMinutes += lateMin; }
           if (earlyMin > 0) { totals.earlyLeaveDays += 1; totals.earlyLeaveMinutes += earlyMin; }
+          if (lunchLateMin > 0) { totals.lunchLateDays += 1; totals.lunchLateMinutes += lunchLateMin; }
         } else if (status === 'partial') {
           totals.workedDays += 1;
           totals.workedMinutes += worked;
@@ -290,6 +322,7 @@ export class PayrollService {
         lateMinutes: lateMin,
         overtimeMinutes: overtimeMin,
         earlyLeaveMinutes: earlyMin,
+        lunchLateMinutes: lunchLateMin,
         status,
         justification: just ? { type: just.type, reason: just.reason } : null,
         activitiesCount: dayActs.length,
@@ -309,7 +342,12 @@ export class PayrollService {
         photoUrl: worker.photoUrl,
       },
       month: { year, month: month1, label: monthLabel },
-      schedule: { enabled: !!schedule.enabled, lateAfterMinutes: schedule.lateAfterMinutes || 0 },
+      schedule: {
+        enabled: !!schedule.enabled,
+        lateAfterMinutes: schedule.lateAfterMinutes || 0,
+        lunchLateEnabled: !!schedule.lunchLateEnabled,
+        lunchLateAfterMinutes: schedule.lunchLateAfterMinutes || 0,
+      },
       totals,
       daily,
     };

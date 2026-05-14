@@ -81,7 +81,7 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
   }
   doc.fillColor('#94a3b8').fontSize(9).font('Helvetica').text(payroll.worker.email, left, y);
 
-  // --- Totales (4×2 grid) ---
+  // --- Totales (grid 4 columnas, filas dinámicas) ---
   doc.moveDown(2);
   const totalsY = doc.y;
   const cellW = pageWidth / 4;
@@ -96,6 +96,15 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
     { label: 'JUSTIFICADAS', value: String(payroll.totals.justifiedDays), tone: '#8b5cf6' },
     { label: 'ACTIVIDADES', value: `${payroll.totals.activitiesCount}` + (payroll.totals.activitiesMinutes ? ` (${fmtDur(payroll.totals.activitiesMinutes)})` : ''), tone: '#64748b' },
   ];
+  // Sólo añadimos la celda de "vuelta tardía de almuerzo" si el feature está activo
+  // (evita mostrar 0/0 en empresas que no usan la regla).
+  if (payroll.schedule.lunchLateEnabled) {
+    cells.push({
+      label: 'VUELTA TARDÍA ALMUERZO',
+      value: `${payroll.totals.lunchLateDays}` + (payroll.totals.lunchLateMinutes ? ` (${fmtDur(payroll.totals.lunchLateMinutes)})` : ''),
+      tone: '#fb923c',
+    });
+  }
   cells.forEach((c, i) => {
     const col = i % 4;
     const row = Math.floor(i / 4);
@@ -107,7 +116,8 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
   });
 
   // --- Detalle diario (tabla) ---
-  const tableY = totalsY + 2 * (cellH + 4) + 18;
+  const totalRows = Math.ceil(cells.length / 4);
+  const tableY = totalsY + totalRows * (cellH + 4) + 18;
   doc.fillColor('#0f172a').fontSize(11).font('Helvetica-Bold').text('Detalle diario', left, tableY);
   doc.fillColor('#94a3b8').fontSize(8).font('Helvetica').text('Sólo se muestran días con eventos o laborables.', left, doc.y);
 
@@ -148,12 +158,18 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
     const empty = !r.firstIn && !r.lastOut && r.status === 'rest';
     if (empty) continue;
 
+    // Si volvió tarde del almuerzo (lunchLateMinutes > 0), lo anotamos junto a la hora
+    // de vuelta del almuerzo para que sea visible en la línea sin agregar columnas.
+    const lunchInCell = r.lunchIn
+      ? r.lunchLateMinutes > 0 ? `${r.lunchIn} (+${r.lunchLateMinutes}m)` : r.lunchIn
+      : '—';
+
     const cells = [
       r.date.slice(8) + '/' + r.date.slice(5, 7),
       r.weekday,
       r.firstIn || '—',
       r.lunchOut || '—',
-      r.lunchIn || '—',
+      lunchInCell,
       r.lastOut || '—',
       r.workedMinutes ? fmtDur(r.workedMinutes) : '—',
       STATUS_LABEL[r.status] || r.status,
@@ -165,6 +181,9 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
       if (i === 7) {
         // Status con color
         doc.fillColor(STATUS_COLOR[r.status] || '#0f172a');
+      } else if (i === 4 && r.lunchLateMinutes > 0) {
+        // Resaltamos la vuelta del almuerzo en naranja cuando llegó tarde.
+        doc.fillColor('#ea580c');
       } else {
         doc.fillColor('#334155');
       }
