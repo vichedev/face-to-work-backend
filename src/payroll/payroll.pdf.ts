@@ -1,4 +1,8 @@
-import * as PDFDocument from 'pdfkit';
+// PDFKit es CommonJS: `module.exports = PDFDocument`. Usamos require() directo
+// para evitar problemas de interop ESM/CJS en producción — con `import * as` y
+// esModuleInterop=true, tsc envuelve el módulo en un namespace y `new (X)()` falla.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const PDFDocument: any = require('pdfkit');
 import { Writable } from 'stream';
 import { MonthlyPayroll } from './payroll.service';
 
@@ -37,9 +41,13 @@ interface RenderOpts {
 /**
  * Renderiza un PDF de reporte mensual sobre el writable stream proporcionado.
  * El caller es responsable de pipe()-ear el stream al destino HTTP/file.
+ *
+ * Para producción, prefiere `renderPayrollPdfBuffer` que devuelve el PDF
+ * completo en memoria — más robusto frente a middlewares de compresión
+ * y proxies que buffereá streams.
  */
 export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: RenderOpts): void {
-  const doc = new (PDFDocument as any)({
+  const doc = new PDFDocument({
     size: 'A4',
     margin: 40,
     info: { Title: `Reporte ${payroll.worker.name} ${payroll.month.label}`, Author: opts.companyName },
@@ -191,4 +199,30 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
   );
 
   doc.end();
+}
+
+/**
+ * Versión bufferizada — genera el PDF entero en memoria y resuelve con un Buffer.
+ * Más confiable en producción detrás de `compression()` y proxies: se envía con
+ * Content-Length conocido y sin streaming chunked.
+ *
+ * Internamente reusa `renderPayrollPdf` capturando los chunks que PDFKit emite.
+ */
+export function renderPayrollPdfBuffer(payroll: MonthlyPayroll, opts: RenderOpts): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const sink = new Writable({
+      write(chunk: Buffer, _enc, cb) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        cb();
+      },
+    });
+    sink.on('finish', () => resolve(Buffer.concat(chunks)));
+    sink.on('error', reject);
+    try {
+      renderPayrollPdf(payroll, sink, opts);
+    } catch (e) {
+      reject(e);
+    }
+  });
 }

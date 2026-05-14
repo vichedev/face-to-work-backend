@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Controller,
   Get,
+  InternalServerErrorException,
+  Logger,
   Param,
   Query,
   Req,
@@ -12,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { StaffGuard } from '../auth/staff.guard';
 import { PayrollService } from './payroll.service';
-import { renderPayrollPdf } from './payroll.pdf';
+import { renderPayrollPdfBuffer } from './payroll.pdf';
 
 function parseMonth(month?: string): { year: number; month: number } {
   if (!month) {
@@ -26,6 +28,8 @@ function parseMonth(month?: string): { year: number; month: number } {
 
 @Controller('payroll')
 export class PayrollController {
+  private readonly logger = new Logger('PayrollController');
+
   constructor(
     private readonly service: PayrollService,
     private readonly config: ConfigService,
@@ -54,13 +58,29 @@ export class PayrollController {
     @Req() _req: any,
   ) {
     const { year, month: m } = parseMonth(month);
-    const payroll = await this.service.computeMonth(workerId, year, m);
-    const filename = `nomina-${payroll.worker.code || payroll.worker.id.slice(0, 8)}-${year}-${String(m).padStart(2, '0')}.pdf`;
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-    renderPayrollPdf(payroll, res, {
-      companyName: this.config.get<string>('COMPANY_NAME') || 'Face to Work',
-      companyTagline: this.config.get<string>('COMPANY_TAGLINE') || 'Control de asistencia con reconocimiento facial',
-    });
+    try {
+      const payroll = await this.service.computeMonth(workerId, year, m);
+      const filename = `nomina-${payroll.worker.code || payroll.worker.id.slice(0, 8)}-${year}-${String(m).padStart(2, '0')}.pdf`;
+      // Generamos el PDF entero en memoria (Buffer). Más robusto que streaming detrás
+      // de compression() y proxies inversos. El reporte mensual pesa pocas decenas de KB.
+      const buf = await renderPayrollPdfBuffer(payroll, {
+        companyName: this.config.get<string>('COMPANY_NAME') || 'Face to Work',
+        companyTagline: this.config.get<string>('COMPANY_TAGLINE') || 'Control de asistencia con reconocimiento facial',
+      });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', String(buf.length));
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(buf);
+    } catch (e: any) {
+      // Loguear con detalle del workerId/month antes de relanzar, para diagnóstico en prod.
+      this.logger.error(
+        `Error generando PDF nómina worker=${workerId} month=${year}-${m}: ${e?.message || e}`,
+        e?.stack,
+      );
+      throw new InternalServerErrorException(
+        `No se pudo generar el PDF: ${e?.message || 'error interno'}`,
+      );
+    }
   }
 }

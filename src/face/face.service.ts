@@ -15,6 +15,29 @@ export interface VerifyResult {
   greeting: string; // saludo corto ya armado (con el saludo de la hora correcto)
 }
 
+/** Estado emocional detectado. Ordenados de mejor a peor para fácil clasificación. */
+export type Mood =
+  | 'happy'      // sonriente, alegre
+  | 'content'    // tranquilo, satisfecho
+  | 'neutral'    // expresión neutra
+  | 'tired'      // cansado, ojeras, fatigado
+  | 'sad'        // triste, decaído
+  | 'stressed'   // tenso, preocupado
+  | 'angry'      // enojado, ceño marcado
+  | 'unclear';   // no se pudo determinar
+
+export interface MoodResult {
+  available: boolean;
+  mood: Mood;
+  confidence: number; // 0-100
+  /** Detalles visuales: sonrisa, ojos, ceño, postura, etc. */
+  facialDetails: string;
+  /** Mensaje cálido en español adaptado al estado de ánimo. */
+  message: string;
+  /** True si el ánimo amerita sugerir buscar apoyo (sad/stressed/angry sostenidos). */
+  needsSupport: boolean;
+}
+
 function clampHour(hour: number): number {
   return Number.isFinite(hour) ? ((Math.trunc(hour) % 24) + 24) % 24 : new Date().getHours();
 }
@@ -239,6 +262,97 @@ export class FaceService {
     } catch (e: any) {
       this.logger.warn(`verify falló: ${e?.message || e}`);
       return { available: false, match: false, confidence: 0, reasoning: `Error de la IA: ${e?.message || e}`, greeting: fallbackGreeting };
+    }
+  }
+
+  /**
+   * Analiza el estado de ánimo aparente de la persona en una foto y devuelve
+   * un mensaje motivador o de apoyo según el caso. Sólo se usa para mostrarle
+   * algo cálido al trabajador o al staff — nunca para penalizar ni decidir
+   * automáticamente nada disciplinario.
+   */
+  async analyzeMood(imageUrl: string, opts?: { name?: string; type?: MarkType }): Promise<MoodResult> {
+    const firstName = firstNameOf(opts?.name || '');
+    if (!this.enabled || !imageUrl) {
+      return {
+        available: false,
+        mood: 'unclear',
+        confidence: 0,
+        facialDetails: '',
+        message: firstName ? `¡Hola, ${firstName}! Esperamos que tengas un buen día.` : '¡Esperamos que tengas un buen día!',
+        needsSupport: false,
+      };
+    }
+
+    const validMoods: Mood[] = ['happy', 'content', 'neutral', 'tired', 'sad', 'stressed', 'angry', 'unclear'];
+    const moodSchema =
+      '"happy" (sonriente, ojos brillantes), "content" (tranquilo, satisfecho), "neutral" (expresión neutra), ' +
+      '"tired" (ojos cansados, ojeras, fatiga), "sad" (triste, comisuras hacia abajo), ' +
+      '"stressed" (ceño tenso, mirada preocupada), "angry" (enojado, ceño muy marcado), ' +
+      '"unclear" (no se aprecia el rostro con claridad)';
+
+    try {
+      const content = await this.callGroq(
+        [
+          {
+            role: 'system',
+            content:
+              'Eres un asistente empático que observa el estado de ánimo aparente de una persona a partir de su foto en un sistema de control de asistencia laboral. ' +
+              'El objetivo es darle al trabajador un mensaje cálido y breve, NUNCA penalizar ni hacer diagnósticos médicos ni psicológicos. ' +
+              'Observa señales faciales: sonrisa o ausencia de ella, ojos (brillo, ojeras, mirada), cejas, postura, tensión del rostro. ' +
+              `Clasifica el estado en uno de: ${moodSchema}. ` +
+              'Da una "confidence" 0-100 con qué tan claro está el estado. ' +
+              `Escribe "facialDetails": una descripción muy breve y respetuosa (máx. 20 palabras) en español de lo que observas. ` +
+              `Escribe "message": una frase corta (máx. 18 palabras), cálida, cercana, en español, dirigida ${firstName ? `a "${firstName}"` : 'a la persona'}. ` +
+              'Si el estado es happy o content → felicitalo o reconócelo con genuinidad. ' +
+              'Si es neutral o tired → ánimo suave, sin presionarlo. ' +
+              'Si es sad, stressed o angry → mensaje empático, invitando a hablar con su líder o pedir apoyo si lo necesita, sin exagerar ni dramatizar. ' +
+              'Si es unclear → mensaje neutro de bienvenida. ' +
+              'Marca "needsSupport": true sólo si el estado es sad, stressed o angry CON confidence >= 60. ' +
+              'Responde SOLO con JSON: {"mood":"<uno de los valores>","confidence":<entero 0-100>,"facialDetails":"<texto>","message":"<texto>","needsSupport":true|false}.',
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Analiza el estado de ánimo de esta persona:' },
+              { type: 'image_url', image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        400,
+      );
+      const json = this.parseJson(content);
+      if (!json) {
+        return {
+          available: true,
+          mood: 'unclear',
+          confidence: 0,
+          facialDetails: '',
+          message: firstName ? `¡Hola, ${firstName}!` : '¡Hola!',
+          needsSupport: false,
+        };
+      }
+      const mood: Mood = validMoods.includes(json.mood) ? json.mood : 'unclear';
+      let confidence = Number(json.confidence);
+      if (!isFinite(confidence)) confidence = 0;
+      confidence = Math.max(0, Math.min(100, Math.round(confidence)));
+      const facialDetails = String(json.facialDetails || '').slice(0, 240);
+      const message = String(json.message || '').slice(0, 240) ||
+        (firstName ? `¡Sigue adelante, ${firstName}!` : '¡Sigue adelante!');
+      // Server-side override: needsSupport sólo si el modelo lo dijo Y el ánimo coincide Y la confianza es suficiente.
+      const supportMoods: Mood[] = ['sad', 'stressed', 'angry'];
+      const needsSupport = json.needsSupport === true && supportMoods.includes(mood) && confidence >= 60;
+      return { available: true, mood, confidence, facialDetails, message, needsSupport };
+    } catch (e: any) {
+      this.logger.warn(`analyzeMood falló: ${e?.message || e}`);
+      return {
+        available: false,
+        mood: 'unclear',
+        confidence: 0,
+        facialDetails: '',
+        message: firstName ? `¡Hola, ${firstName}! Esperamos que tengas un buen día.` : '¡Esperamos que tengas un buen día!',
+        needsSupport: false,
+      };
     }
   }
 }
