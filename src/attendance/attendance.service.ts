@@ -102,7 +102,27 @@ export class AttendanceService {
     });
     const lastToday = todays[todays.length - 1];
     const type: AttendanceType = dto.type ? dto.type : nextInSequence(lastToday?.type);
-    const isFirstInOfDay = type === 'in' && !todays.some((a) => a.type === 'in');
+
+    // Bloqueos de coherencia. La secuencia natural es in → lunch_out → lunch_in → out.
+    // El admin puede corregir manualmente desde el panel; el worker no debería poder:
+    //  - Marcar dos veces seguidas el mismo tipo (ej. dos "in", dos "out").
+    //  - Marcar "lunch_in" sin haber hecho "lunch_out" antes ese día.
+    //  - Marcar "out" o "lunch_out" sin haber hecho "in" antes ese día.
+    if (lastToday && lastToday.type === type) {
+      const LABEL: Record<AttendanceType, string> = {
+        in: 'entrada', lunch_out: 'salida a almuerzo', lunch_in: 'vuelta de almuerzo', out: 'salida',
+      };
+      throw new BadRequestException(`Ya marcaste tu ${LABEL[type]} a las ${new Date(lastToday.createdAt).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}. Marca el siguiente tipo o pídele al admin que lo corrija.`);
+    }
+    const hasInToday = todays.some((a) => a.type === 'in');
+    if ((type === 'out' || type === 'lunch_out') && !hasInToday) {
+      throw new BadRequestException('Primero marca tu entrada del día.');
+    }
+    if (type === 'lunch_in' && !todays.some((a) => a.type === 'lunch_out')) {
+      throw new BadRequestException('Aún no has marcado la salida a almuerzo.');
+    }
+
+    const isFirstInOfDay = type === 'in' && !hasInToday;
     // Hora local del trabajador (la envía el navegador); si no llega, hora del servidor.
     const hour = typeof dto.clientHour === 'number' ? dto.clientHour : new Date().getHours();
 
@@ -157,10 +177,26 @@ export class AttendanceService {
       (insideOffice && schedule.officeName ? schedule.officeName : '');
 
     // Liveness: el cliente envía un % de diferencia entre 2 frames consecutivos.
-    // Si está por encima del umbral lo aceptamos como rostro real (no foto impresa).
+    // Defensa server-side:
+    //   - Si llega un score por debajo del umbral → rechazo (el cliente honesto
+    //     nunca lo enviaría así porque su propia validación ya lo bloquea).
+    //   - Si llega un score sospechosamente alto (>60%) lo aceptamos pero lo
+    //     marcamos como NO verificado: un rostro real raramente supera ese rango
+    //     en 900 ms y suele indicar manipulación del cliente.
+    //   - Si NO llega score, aceptamos por compatibilidad pero `livenessVerified=false`.
     const LIVENESS_THRESHOLD = 2.5;
+    const LIVENESS_SUSPICIOUS_HIGH = 60;
     const livenessScore = typeof dto.livenessScore === 'number' ? Math.max(0, Math.min(100, dto.livenessScore)) : null;
-    const livenessVerified = livenessScore != null && livenessScore >= LIVENESS_THRESHOLD;
+    if (livenessScore != null && livenessScore < LIVENESS_THRESHOLD) {
+      throw new BadRequestException('Verificación de vida fallida. Parpadea o mueve un poco la cabeza y vuelve a capturar.');
+    }
+    const livenessVerified =
+      livenessScore != null &&
+      livenessScore >= LIVENESS_THRESHOLD &&
+      livenessScore <= LIVENESS_SUSPICIOUS_HIGH;
+    if (livenessScore != null && livenessScore > LIVENESS_SUSPICIOUS_HIGH) {
+      this.logger.warn(`Liveness sospechosamente alto (${livenessScore}%) para ${worker.email} — marcado como no verificado.`);
+    }
 
     const record = this.repo.create({
       workerId: worker.id,

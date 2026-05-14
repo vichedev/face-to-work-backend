@@ -110,23 +110,31 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
   const scale = pageWidth / totalW;
   const cols = widths.map((w) => w * scale);
 
-  // Header row
-  doc.fillColor('#475569').fontSize(8).font('Helvetica-Bold');
-  let x = left;
-  for (let i = 0; i < headers.length; i++) {
-    doc.text(headers[i], x + 4, rowY + 4, { width: cols[i] - 8 });
-    x += cols[i];
+  // Función para dibujar la cabecera de la tabla (se repite en cada página nueva).
+  function drawTableHeader(y: number): number {
+    doc.fillColor('#475569').fontSize(8).font('Helvetica-Bold');
+    let xx = left;
+    for (let i = 0; i < headers.length; i++) {
+      doc.text(headers[i], xx + 4, y + 4, { width: cols[i] - 8 });
+      xx += cols[i];
+    }
+    const next = y + 18;
+    doc.moveTo(left, next - 2).lineTo(left + pageWidth, next - 2).strokeColor('#e2e8f0').lineWidth(0.6).stroke();
+    return next;
   }
-  rowY += 18;
-  doc.moveTo(left, rowY - 2).lineTo(left + pageWidth, rowY - 2).strokeColor('#e2e8f0').lineWidth(0.6).stroke();
+
+  rowY = drawTableHeader(rowY);
 
   // Data rows
   doc.font('Helvetica').fontSize(8);
   for (const r of payroll.daily) {
-    // saltar de página si nos pasamos
-    if (rowY > doc.page.height - doc.page.margins.bottom - 30) {
+    // Salto de página + redibujar cabecera de la tabla.
+    // Reservamos 36 px porque la fila puede traer una sub-línea de justificación.
+    if (rowY > doc.page.height - doc.page.margins.bottom - 36) {
       doc.addPage();
       rowY = doc.page.margins.top;
+      rowY = drawTableHeader(rowY);
+      doc.font('Helvetica').fontSize(8);
     }
     // skip días sin eventos y no laborables (descanso plano sin nada interesante)
     const empty = !r.firstIn && !r.lastOut && r.status === 'rest';
@@ -144,7 +152,7 @@ export function renderPayrollPdf(payroll: MonthlyPayroll, out: Writable, opts: R
       r.lateMinutes ? `${r.lateMinutes} min` : '—',
       r.overtimeMinutes ? `${r.overtimeMinutes} min` : '—',
     ];
-    x = left;
+    let x = left;
     for (let i = 0; i < cells.length; i++) {
       if (i === 7) {
         // Status con color
