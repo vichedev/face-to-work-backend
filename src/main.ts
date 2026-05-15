@@ -29,11 +29,24 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '16mb' }));
 
   // Seguridad: cabeceras HTTP
+  //  · contentSecurityPolicy: false — el front inyecta su propio CSP estricto.
+  //  · crossOriginResourcePolicy: cross-origin — fotos en /uploads necesitan poder
+  //    cargarse desde el frontend (otro origen permitido).
+  //  · crossOriginEmbedderPolicy: false — evita romper iframes / 3rd-party assets.
+  //  · hsts: forzar HTTPS por 6 meses con preload (proteger contra downgrade attacks
+  //    cuando hay un proxy TLS delante como Caddy).
+  //  · noSniff y frameguard vienen on por defecto en helmet, no hace falta tocarlos.
   app.use(
     helmet({
-      contentSecurityPolicy: false, // Deshabilitado: el front ya inyecta su propio CSP
-      crossOriginResourcePolicy: { policy: 'cross-origin' }, // permite imágenes de uploads
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
       crossOriginEmbedderPolicy: false,
+      hsts: {
+        maxAge: 60 * 60 * 24 * 180, // 180 días
+        includeSubDomains: true,
+        preload: true,
+      },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     }),
   );
 

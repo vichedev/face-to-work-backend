@@ -16,6 +16,11 @@ import { StaffGuard } from '../auth/staff.guard';
 import { PayrollService } from './payroll.service';
 import { renderPayrollPdfBuffer } from './payroll.pdf';
 
+// Nota seguridad: el supervisor por diseño tiene SOLO LECTURA sobre los datos
+// del personal (incluye nómina). El control fino se ejerce vía `StaffGuard` en
+// cada endpoint; no hay IDOR aquí porque cualquier staff puede leer cualquier
+// nómina por intención del producto.
+
 function parseMonth(month?: string): { year: number; month: number } {
   if (!month) {
     const d = new Date();

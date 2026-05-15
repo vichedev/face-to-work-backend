@@ -152,7 +152,19 @@ export class AuthService {
     if (dto.currentPassword === dto.newPassword) {
       throw new BadRequestException('La nueva contraseña debe ser distinta de la actual');
     }
-    const newHash = await bcrypt.hash(dto.newPassword, 10);
+    // Si el usuario tiene 2FA activo, requerimos también el código TOTP.
+    // Esto evita que un atacante con un token comprometido + la contraseña
+    // antigua (ej. phishing) pueda cambiar la contraseña sin acceso al 2do factor.
+    if (user.totpEnabled) {
+      if (!dto.totpCode) {
+        throw new UnauthorizedException(
+          'Tu cuenta tiene 2FA activo. Incluye el código de 6 dígitos de tu app autenticadora.',
+        );
+      }
+      const okCode = await this.twoFactor.verifyCode(userId, dto.totpCode);
+      if (!okCode) throw new UnauthorizedException('Código TOTP incorrecto');
+    }
+    const newHash = await bcrypt.hash(dto.newPassword, 12);
     // Bump de tokenVersion invalida cualquier otra sesión activa de este usuario.
     await this.usersRepo.update(userId, {
       password: newHash,
@@ -171,5 +183,16 @@ export class AuthService {
     await this.usersRepo.update(userId, { tokenVersion: (user.tokenVersion || 0) + 1 });
     const fresh = await this.usersService.findById(userId);
     return this.buildTokenResponse(fresh!);
+  }
+
+  /**
+   * Reemite un access token con el tokenVersion actual del usuario, sin bump.
+   * Útil tras una acción que ya hizo bump (ej. desactivar 2FA en TwoFactorService),
+   * para que la sesión que ejecutó la acción no quede invalidada.
+   */
+  async reissueToken(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    return this.buildTokenResponse(user);
   }
 }

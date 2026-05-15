@@ -10,12 +10,19 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { IsString, MaxLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { StaffGuard } from '../auth/staff.guard';
 import { TasksService } from './tasks.service';
 import { AuditService, auditCtx } from '../audit/audit.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/create-task.dto';
+
+class BulkImportTasksDto {
+  /** CSV de tareas, máx ~512 KB (suficiente para miles de filas). */
+  @IsString() @MaxLength(512 * 1024)
+  csv: string;
+}
 
 @Controller('tasks')
 export class TasksController {
@@ -42,11 +49,8 @@ export class TasksController {
 
   @UseGuards(StaffGuard)
   @Post('bulk-import')
-  async bulkImport(@Req() req: any, @Body() body: { csv: string }) {
-    if (!body?.csv || typeof body.csv !== 'string') {
-      return { created: 0, errors: [{ row: 0, message: 'Falta el campo "csv" con el contenido del archivo' }] };
-    }
-    const result = await this.service.importCsv(req.user.id, body.csv);
+  async bulkImport(@Req() req: any, @Body() dto: BulkImportTasksDto) {
+    const result = await this.service.importCsv(req.user.id, dto.csv);
     if (result.created > 0) {
       await this.audit.record(auditCtx(req), {
         entity: 'task',

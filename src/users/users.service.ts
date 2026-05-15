@@ -85,7 +85,7 @@ export class UsersService {
     }
     const user = this.usersRepo.create({
       email,
-      password: await bcrypt.hash(data.password, 10),
+      password: await bcrypt.hash(data.password, 12),
       name: data.name.trim(),
       role: data.role || 'admin',
       code: data.code || null,
@@ -104,7 +104,7 @@ export class UsersService {
   async resetPassword(id: string, tempPassword: string) {
     const user = await this.usersRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    const hash = await bcrypt.hash(tempPassword, 10);
+    const hash = await bcrypt.hash(tempPassword, 12);
     // tokenVersion + 1 invalida cualquier sesión activa que tuviera ese usuario.
     await this.usersRepo.update(id, {
       password: hash,
@@ -147,14 +147,27 @@ export class UsersService {
       }
       user.code = data.code || null;
     }
-    if (data.password) user.password = await bcrypt.hash(data.password, 10);
+    if (data.password) {
+      user.password = await bcrypt.hash(data.password, 12);
+      // Cambio de password ⇒ invalidar sesiones (defensa en profundidad: el flujo
+      // del propio usuario ya lo hace, esto cubre cambios via admin/users.update).
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
+    }
     if (data.name !== undefined) user.name = data.name.trim();
     if (data.position !== undefined) user.position = data.position;
     if (data.department !== undefined) user.department = data.department;
     if (data.phone !== undefined) user.phone = data.phone;
     if (data.photoUrl !== undefined) user.photoUrl = data.photoUrl;
     if (data.faceDescriptor !== undefined) user.faceDescriptor = data.faceDescriptor;
-    if (data.active !== undefined) user.active = data.active;
+    // Desactivar cuenta ⇒ invalidar tokens activos para que el ex-trabajador no
+    // pueda hacer NADA con un JWT que tuviera abierto. La JwtStrategy ya bloquea
+    // por active=false, esto añade una segunda barrera por si se reactiva luego.
+    if (data.active !== undefined) {
+      if (data.active === false && user.active === true) {
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+      }
+      user.active = data.active;
+    }
     if (data.internalNotes !== undefined) user.internalNotes = (data.internalNotes || '').slice(0, 4000);
     return this.usersRepo.save(user);
   }

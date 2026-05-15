@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { AuditAction, AuditLog } from './audit-log.entity';
 
 export interface AuditContext {
@@ -20,6 +20,12 @@ export interface RecordParams {
   after?: Record<string, any> | null;
 }
 
+// Construimos el regex de chars de control vía String.fromCharCode para evitar
+// embeber bytes binarios literales en el código fuente (algunos editores los corrompen).
+// Cubre 0x00..0x1f (control C0) + 0x7f (DEL).
+const CTRL_RANGE = String.fromCharCode(0) + '-' + String.fromCharCode(0x1f) + String.fromCharCode(0x7f);
+const CTRL_RE = new RegExp('[' + CTRL_RANGE + ']+', 'g');
+
 @Injectable()
 export class AuditService {
   private readonly log = new Logger('AuditService');
@@ -29,8 +35,29 @@ export class AuditService {
   ) {}
 
   /**
+   * Sanea texto que va al campo `summary` del audit log para prevenir log injection:
+   *   - Reemplaza saltos de línea / retornos de carro (un atacante con un nombre
+   *     o motivo malicioso podría meter `\n[fake admin] deleted X` y confundir
+   *     a quien lea el log).
+   *   - Quita caracteres de control no imprimibles.
+   *   - Colapsa whitespace consecutivo a un único espacio.
+   *   - Trunca a un máximo razonable para que el campo no crezca sin control.
+   */
+  private sanitizeSummary(s: string): string {
+    if (!s) return '';
+    return String(s)
+      .replace(CTRL_RE, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 1000);
+  }
+
+  /**
    * Registra una acción admin. Nunca lanza: si falla, sólo loguea
    * (la auditoría no debe bloquear la operación principal).
+   *
+   * El `summary` se sanea para evitar log injection — los datos del usuario
+   * (nombre, motivo, notas) frecuentemente se interpolan ahí.
    */
   async record(ctx: AuditContext, params: RecordParams): Promise<void> {
     try {
@@ -43,7 +70,7 @@ export class AuditService {
         entity: params.entity,
         entityId: params.entityId,
         action: params.action,
-        summary: params.summary,
+        summary: this.sanitizeSummary(params.summary),
         before: params.before ?? null,
         after: params.after ?? null,
       });

@@ -21,4 +21,12 @@ export class ChangePasswordDto {
 
   @IsString() @MinLength(8) @MaxLength(128)
   newPassword: string;
+
+  /**
+   * Código TOTP de 6 dígitos. OBLIGATORIO si el usuario tiene 2FA activo —
+   * el service valida según `user.totpEnabled`. Lo dejamos opcional en el DTO
+   * para no romper clientes legacy; la lógica de bloqueo está en AuthService.
+   */
+  @IsOptional() @IsString() @MaxLength(8)
+  totpCode?: string;
 }

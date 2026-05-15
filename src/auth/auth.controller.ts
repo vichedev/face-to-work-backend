@@ -76,7 +76,11 @@ export class AuthController {
 
   @UseGuards(AdminGuard)
   @Post('2fa/disable')
-  disable2FA(@Req() req: any, @Body() dto: Disable2FADto) {
-    return this.twoFactor.disable(req.user.id, dto.code, dto.password);
+  async disable2FA(@Req() req: any, @Body() dto: Disable2FADto) {
+    // disable() bumpea tokenVersion (invalida otras sesiones por seguridad).
+    // Para no kick-out a la sesión que ejecutó la acción, emitimos un token
+    // fresco con la nueva tokenVersion.
+    await this.twoFactor.disable(req.user.id, dto.code, dto.password);
+    return this.authService.reissueToken(req.user.id);
   }
 }

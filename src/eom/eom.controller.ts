@@ -151,8 +151,8 @@ export class EomController {
     return this.service.getAward(y, m);
   }
 
-  /** Asignar / actualizar el premio del mes. */
-  @UseGuards(StaffGuard)
+  /** Asignar / actualizar el premio del mes. Sólo admin: es una decisión administrativa, no operativa. */
+  @UseGuards(AdminGuard)
   @Post('award/:year/:month/:workerId')
   async setAward(
     @Req() req: any,
@@ -174,8 +174,8 @@ export class EomController {
     return result;
   }
 
-  /** Quitar el premio del mes (no recomendado, queda en audit). */
-  @UseGuards(StaffGuard)
+  /** Quitar el premio del mes (no recomendado, queda en audit). Sólo admin. */
+  @UseGuards(AdminGuard)
   @Delete('award/:year/:month')
   async removeAward(@Req() req: any, @Param('year') year: string, @Param('month') month: string) {
     const { y, m } = parseYearMonth(year, month);

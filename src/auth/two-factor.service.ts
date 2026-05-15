@@ -101,7 +101,15 @@ export class TwoFactorService {
     if (!this.check(code, user.totpSecret)) {
       throw new UnauthorizedException('Código TOTP incorrecto');
     }
-    await this.usersRepo.update(userId, { totpEnabled: false, totpSecret: '' });
+    // Desactivar 2FA es un evento de seguridad. Invalidamos cualquier otra sesión
+    // del usuario por seguridad — si un atacante con un token robado intentó
+    // bajar el 2FA, su sesión queda quemada. El controller emite un token fresco
+    // para la sesión que ejecutó esta acción.
+    await this.usersRepo.update(userId, {
+      totpEnabled: false,
+      totpSecret: '',
+      tokenVersion: (user.tokenVersion || 0) + 1,
+    });
     return { ok: true };
   }
 
