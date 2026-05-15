@@ -341,47 +341,183 @@ export class AttendanceService {
   }
 
   async dashboard() {
-    const todays = await this.repo.find({
-      where: { createdAt: Between(startOfDay(), endOfDay()) },
-      relations: ['worker'],
-      order: { createdAt: 'DESC' },
-    });
-    const totalWorkers = await this.usersRepo.count({ where: { role: 'worker' } });
-    const activeWorkers = await this.usersRepo.count({ where: { role: 'worker', active: true } });
-    const enrolledWorkers = (
-      await this.usersRepo.find({ where: { role: 'worker', active: true }, select: ['id', 'faceDescriptor'] })
-    ).filter((w) => !!w.faceDescriptor).length;
+    const now = new Date();
+    const startToday = startOfDay(now);
+    const endToday = endOfDay(now);
+    const startYesterday = new Date(startToday); startYesterday.setDate(startYesterday.getDate() - 1);
+    const endYesterday = new Date(endToday); endYesterday.setDate(endYesterday.getDate() - 1);
+    // Ventana de "ayer hasta esta misma hora" — sirve para comparar a igual de día.
+    const sameTimeYesterday = new Date(now); sameTimeYesterday.setDate(sameTimeYesterday.getDate() - 1);
 
+    const [todays, yesterdays, totalWorkers, activeWorkers, activeWorkersFull, schedule] = await Promise.all([
+      this.repo.find({
+        where: { createdAt: Between(startToday, endToday) },
+        relations: ['worker'],
+        order: { createdAt: 'DESC' },
+      }),
+      this.repo.find({
+        where: { createdAt: Between(startYesterday, endYesterday) },
+        order: { createdAt: 'ASC' },
+      }),
+      this.usersRepo.count({ where: { role: 'worker' } }),
+      this.usersRepo.count({ where: { role: 'worker', active: true } }),
+      this.usersRepo.find({
+        where: { role: 'worker', active: true },
+        select: ['id', 'name', 'photoUrl', 'department', 'position', 'faceDescriptor'],
+      }),
+      this.workSchedule.get(),
+    ]);
+
+    const enrolledWorkers = activeWorkersFull.filter((w) => !!w.faceDescriptor).length;
+    const activeWorkerIds = new Set(activeWorkersFull.map((w) => w.id));
+
+    // ── Contadores básicos del día ──────────────────────────────────────
     const checkInsToday = todays.filter((a) => a.type === 'in').length;
     const checkOutsToday = todays.filter((a) => a.type === 'out').length;
     const unidentifiedToday = todays.filter((a) => !a.workerId).length;
-    const lateToday = todays.filter((a) => a.scheduleStatus === 'late' || a.scheduleStatus === 'absent_threshold').length;
+    const lateMarks = todays.filter((a) => a.scheduleStatus === 'late' || a.scheduleStatus === 'absent_threshold');
+    const lateToday = lateMarks.length;
+    const onTimeToday = todays.filter((a) => a.type === 'in' && a.scheduleStatus === 'on_time').length;
     const overtimeMarksToday = todays.filter((a) => a.scheduleStatus === 'overtime').length;
     const overtimeMinutesToday = todays
       .filter((a) => a.scheduleStatus === 'overtime')
       .reduce((s, a) => s + (a.scheduleMinutes || 0), 0);
+    const lunchLateToday = todays.filter((a) => a.scheduleStatus === 'lunch_late').length;
 
-    const lastByWorker = new Map<string, Attendance>();
-    for (const a of todays) {
-      if (a.workerId && !lastByWorker.has(a.workerId)) lastByWorker.set(a.workerId, a);
+    // ── Estado en VIVO por trabajador ───────────────────────────────────
+    // Recorremos los marcajes en orden cronológico y registramos el estado actual
+    // (presente / en almuerzo / salido) por cada trabajador con marcajes hoy.
+    const stateByWorker = new Map<string, 'present' | 'on_lunch' | 'left'>();
+    const lastMarkByWorker = new Map<string, Attendance>();
+    const sortedAsc = [...todays].sort((x, y) => new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime());
+    for (const m of sortedAsc) {
+      if (!m.workerId) continue;
+      lastMarkByWorker.set(m.workerId, m);
+      if (m.type === 'in' || m.type === 'lunch_in') stateByWorker.set(m.workerId, 'present');
+      else if (m.type === 'lunch_out') stateByWorker.set(m.workerId, 'on_lunch');
+      else if (m.type === 'out') stateByWorker.set(m.workerId, 'left');
     }
-    const presentNow = [...lastByWorker.values()].filter((a) => a.type === 'in').length;
+    let presentNow = 0;
+    let onLunchNow = 0;
+    let leftAlready = 0;
+    for (const [, st] of stateByWorker) {
+      if (st === 'present') presentNow++;
+      else if (st === 'on_lunch') onLunchNow++;
+      else if (st === 'left') leftAlready++;
+    }
 
-    const schedule = await this.workSchedule.get();
+    // Trabajadores que debían haber marcado y no lo han hecho. Sólo cuenta si el
+    // turno del día está habilitado, no es feriado, y ya pasó la hora de entrada
+    // + tolerancia de tardanza.
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dayCfg = (schedule.days || {})[String(now.getDay())] as any;
+    const isHolidayToday = (schedule.holidays || []).some((h: any) => h.date === todayKey);
+    const isWorkDay = !!(schedule.enabled && dayCfg?.enabled && !isHolidayToday);
+    let shiftHasStarted = false;
+    if (isWorkDay && dayCfg?.start) {
+      const [h, m] = String(dayCfg.start).split(':').map((x) => parseInt(x, 10));
+      if (isFinite(h) && isFinite(m)) {
+        const shiftStart = new Date(startToday); shiftStart.setHours(h, m, 0, 0);
+        shiftStart.setMinutes(shiftStart.getMinutes() + (schedule.lateAfterMinutes || 0));
+        shiftHasStarted = now >= shiftStart;
+      }
+    }
+    const workerIdsWhoMarkedIn = new Set(todays.filter((a) => a.type === 'in' && a.workerId).map((a) => a.workerId!));
+    const missingCheckin = shiftHasStarted
+      ? activeWorkersFull.filter((w) => !workerIdsWhoMarkedIn.has(w.id))
+          .map((w) => ({ id: w.id, name: w.name, photoUrl: w.photoUrl, department: w.department, position: w.position }))
+      : [];
+
+    // ── Tasa de puntualidad y asistencia ────────────────────────────────
+    // Puntualidad = on_time / (on_time + late). Sólo aplica si schedule está activo.
+    const totalEvaluated = onTimeToday + lateToday;
+    const punctualityRateToday = isWorkDay && totalEvaluated > 0
+      ? Math.round((onTimeToday / totalEvaluated) * 100)
+      : null;
+    // Asistencia = trabajadores que marcaron entrada hoy / activos esperados.
+    const attendanceRateToday = isWorkDay && activeWorkers > 0
+      ? Math.round((workerIdsWhoMarkedIn.size / activeWorkers) * 100)
+      : null;
+    // Promedio de tardanza (sólo entre los tardíos).
+    const avgLateMinutesToday = lateMarks.length > 0
+      ? Math.round(lateMarks.reduce((s, a) => s + (a.scheduleMinutes || 0), 0) / lateMarks.length)
+      : 0;
+
+    // Horas trabajadas estimadas hoy (suma de minutos de cada worker que tiene in+out o sigue presente).
+    let workedMinutesToday = 0;
+    const marksByWorkerToday = new Map<string, Attendance[]>();
+    for (const a of sortedAsc) {
+      if (!a.workerId) continue;
+      if (!marksByWorkerToday.has(a.workerId)) marksByWorkerToday.set(a.workerId, []);
+      marksByWorkerToday.get(a.workerId)!.push(a);
+    }
+    for (const [, list] of marksByWorkerToday) {
+      const firstIn = list.find((m) => m.type === 'in');
+      if (!firstIn) continue;
+      const lastOut = [...list].reverse().find((m) => m.type === 'out');
+      const lunchOut = list.find((m) => m.type === 'lunch_out');
+      const lunchIn = list.find((m) => m.type === 'lunch_in');
+      const endAt = lastOut ? new Date(lastOut.createdAt) : now;
+      let ms = endAt.getTime() - new Date(firstIn.createdAt).getTime();
+      if (lunchOut && lunchIn) ms -= Math.max(0, new Date(lunchIn.createdAt).getTime() - new Date(lunchOut.createdAt).getTime());
+      else if (lunchOut && !lunchIn) ms -= Math.max(0, endAt.getTime() - new Date(lunchOut.createdAt).getTime());
+      workedMinutesToday += Math.max(0, Math.round(ms / 60000));
+    }
+    const avgWorkedMinutesToday = workerIdsWhoMarkedIn.size > 0
+      ? Math.round(workedMinutesToday / workerIdsWhoMarkedIn.size)
+      : 0;
+
+    // ── Comparativa vs ayer (hasta esta misma hora) ─────────────────────
+    const yesterdaysUntilNow = yesterdays.filter((a) => new Date(a.createdAt) <= sameTimeYesterday);
+    const checkInsYesterdayAtSameHour = yesterdaysUntilNow.filter((a) => a.type === 'in').length;
+    const lateYesterdayAtSameHour = yesterdaysUntilNow.filter((a) => a.scheduleStatus === 'late' || a.scheduleStatus === 'absent_threshold').length;
+    const checkInsDelta = checkInsToday - checkInsYesterdayAtSameHour;
+    const lateDelta = lateToday - lateYesterdayAtSameHour;
 
     return {
       aiEnabled: this.faceService.enabled,
       scheduleEnabled: schedule.enabled,
+      isWorkDay,
+      isHolidayToday,
+      shiftStart: dayCfg?.start || null,
+      shiftEnd: dayCfg?.end || null,
+
+      // Inscripción / capacidad
       totalWorkers,
       activeWorkers,
       enrolledWorkers,
+
+      // Snapshots del día
       checkInsToday,
       checkOutsToday,
-      presentNow,
       unidentifiedToday,
       lateToday,
+      onTimeToday,
       overtimeMarksToday,
       overtimeMinutesToday,
+      lunchLateToday,
+      avgLateMinutesToday,
+      workedMinutesToday,
+      avgWorkedMinutesToday,
+
+      // Estado en VIVO
+      presentNow,
+      onLunchNow,
+      leftAlready,
+      missingCheckin,             // array con los que no marcaron y debían
+      missingCheckinCount: missingCheckin.length,
+
+      // KPIs porcentuales (null cuando no aplica — día de descanso/feriado/jornada off)
+      punctualityRateToday,
+      attendanceRateToday,
+      enrollmentRate: activeWorkers > 0 ? Math.round((enrolledWorkers / activeWorkers) * 100) : null,
+
+      // Comparativa vs ayer (a igual hora)
+      vsYesterday: {
+        checkIns: checkInsDelta,
+        late: lateDelta,
+      },
+
       recent: todays.slice(0, 12),
     };
   }
