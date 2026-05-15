@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -62,7 +61,8 @@ export class TwoFactorService {
   async beginSetup(userId: string) {
     const user = await this.loadFull(userId);
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    if (user.role !== 'admin') throw new ForbiddenException('Sólo los administradores pueden activar 2FA');
+    // 2FA disponible para CUALQUIER usuario autenticado (admin, supervisor, worker).
+    // Cada uno decide si lo activa para proteger su propia cuenta.
     if (user.totpEnabled) throw new ConflictException('2FA ya está activado para esta cuenta');
 
     const secret = generateSecret();

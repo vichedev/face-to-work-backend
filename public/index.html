@@ -2,6 +2,39 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Content Security Policy — defensa en profundidad contra XSS, inyección, exfiltración.
+
+       · default-src 'self'    : todo desde el mismo origen por defecto.
+       · script-src 'self'     : sólo JS bundleado por Vite. NO permite inline ni eval.
+       · style-src 'self' 'unsafe-inline' : Tailwind v4 + estilos en línea de React necesitan inline.
+       · img-src                : self, data:/blob: (canvas/cámara), tiles de mapa (Carto + OSM),
+                                  y https: en general para fotos de los uploads (que en deploy son same-origin).
+       · connect-src 'self'    : todas las llamadas API van al mismo dominio (Caddy + Nest).
+       · worker-src self+blob: : service worker + workers que Vite/React puedan inicializar.
+       · object-src 'none'     : nada de <object>/<embed>/<applet>.
+       · base-uri 'self'       : bloquea inyección de <base> que cambiaría las URLs relativas.
+       · form-action 'self'    : <form action="..."> no puede apuntar a otro origen.
+       · frame-ancestors 'none': impide cargar la app dentro de un iframe externo (anti-clickjacking).
+                                 Nota: en <meta> es ignorado por algunos navegadores — el header
+                                 X-Frame-Options de Helmet (SAMEORIGIN por defecto) cubre el caso.
+       · upgrade-insecure-requests : fuerza https en cualquier subrecurso http:// olvidado.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self';
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org;
+      font-src 'self' data:;
+      connect-src 'self';
+      worker-src 'self' blob:;
+      manifest-src 'self';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      frame-ancestors 'none';
+      upgrade-insecure-requests
+    " />
     <!-- Favicon dinámico: el backend devuelve el logo del branding si lo hay, o el default.
          La primera petición HTML ya trae el icono correcto: sin "flash" del icono por defecto. -->
     <link rel="icon" href="/api/branding/favicon" />
@@ -15,7 +48,7 @@
     <meta name="apple-mobile-web-app-title" content="Face2Work" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>Face to Work · Control de asistencia con reconocimiento facial</title>
-    <script type="module" crossorigin src="/assets/index-B9FshqZ0.js"></script>
+    <script type="module" crossorigin src="/assets/index-CEoYnTgc.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-S-ySWqyJ.js">
     <link rel="modulepreload" crossorigin href="/assets/icons-BkAaQGra.js">
     <link rel="modulepreload" crossorigin href="/assets/react-vendor-DH3BSNrq.js">

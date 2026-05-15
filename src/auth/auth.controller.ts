@@ -4,7 +4,6 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { AdminGuard } from './admin.guard';
 import { TwoFactorService } from './two-factor.service';
 import { Disable2FADto, TotpLoginDto, VerifyTotpDto } from './dto/two-factor.dto';
 import { ChangePasswordDto, UpdateProfileDto } from './dto/profile.dto';
@@ -61,20 +60,25 @@ export class AuthController {
     return this.authService.logoutAllOtherSessions(req.user.id);
   }
 
-  // ── 2FA: activación / verificación / desactivación (sólo admin) ──
-  @UseGuards(AdminGuard)
+  // ── 2FA: activación / verificación / desactivación (cualquier usuario autenticado) ──
+  // Throttle agresivo: 2FA setup es un flujo poco frecuente; limitar previene
+  // que un atacante con un token comprometido haga sweep para forzar/desactivar.
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @UseGuards(JwtAuthGuard)
   @Post('2fa/setup')
   setup2FA(@Req() req: any) {
     return this.twoFactor.beginSetup(req.user.id);
   }
 
-  @UseGuards(AdminGuard)
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @UseGuards(JwtAuthGuard)
   @Post('2fa/verify-setup')
   verify2FASetup(@Req() req: any, @Body() dto: VerifyTotpDto) {
     return this.twoFactor.verifySetup(req.user.id, dto.code);
   }
 
-  @UseGuards(AdminGuard)
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @UseGuards(JwtAuthGuard)
   @Post('2fa/disable')
   async disable2FA(@Req() req: any, @Body() dto: Disable2FADto) {
     // disable() bumpea tokenVersion (invalida otras sesiones por seguridad).
